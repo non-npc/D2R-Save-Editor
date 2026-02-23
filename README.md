@@ -4,6 +4,10 @@
 
 > ⚠️ Use at your own risk. Always keep backups. This tool is intended for **offline** saves only.
 
+## Screenshot
+
+![D2R Save Editor screenshot](screenshot.png)
+
 ## Features
 
 - **Open .d2s files** — Load and display Diablo II Resurrected character save files (signature, version, size, checksum, name, class, level)

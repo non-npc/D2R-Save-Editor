@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel, QFileDialog, QMessageBox, QFormLayout, QLineEdit, QSpinBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QStatusBar,
     QGroupBox, QGridLayout, QCheckBox, QComboBox, QTextEdit, QSizePolicy,
-    QFrame, QScrollArea, QInputDialog
+    QFrame, QScrollArea, QInputDialog, QDialog, QDialogButtonBox
 )
 
 from app.settings_dialog import SettingsDialog
@@ -34,6 +34,23 @@ from d2s.diagnostics import find_markers, find_fourcc_tags
 from d2s.models import SaveFile, QuestEntry, ItemSimpleHeader
 
 APP_TITLE = "D2R Save Editor"
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About D2R Save Editor")
+        layout = QVBoxLayout(self)
+        lbl = QLabel(
+            '<p><b>D2R Save Editor</b></p>'
+            '<p>Created by non-npc</p>'
+            '<p><a href="https://github.com/non-npc/D2R-Save-Editor">https://github.com/non-npc/D2R-Save-Editor</a></p>'
+        )
+        lbl.setOpenExternalLinks(True)
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+        btn = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btn.accepted.connect(self.accept)
+        layout.addWidget(btn)
 
 def _mono_font() -> QFont:
     f = QFont("Consolas")
@@ -630,6 +647,11 @@ class MainWindow(QMainWindow):
         m_settings = self.menuBar().addMenu("Settings")
         m_settings.addAction(act_settings)
 
+        act_about = QAction("About…", self)
+        act_about.triggered.connect(self._show_about)
+        m_help = self.menuBar().addMenu("Help")
+        m_help.addAction(act_about)
+
         self.overview.edit_name.textEdited.connect(self._mark_dirty)
         self.overview.spin_level.valueChanged.connect(self._on_overview_level_changed)
         self.stats_tab.spins[12].valueChanged.connect(self._on_stats_level_changed)
@@ -639,6 +661,10 @@ class MainWindow(QMainWindow):
 
     def _show_settings(self):
         dlg = SettingsDialog(self)
+        dlg.exec()
+
+    def _show_about(self):
+        dlg = AboutDialog(self)
         dlg.exec()
 
     def _mark_dirty(self, *args):
@@ -667,10 +693,12 @@ class MainWindow(QMainWindow):
         self._mark_dirty()
 
     def _update_status(self):
-        path = self.save.path if self.save else "(no file)"
-        chk = "-" if not self.save else ("OK" if verify(self.save) else "INVALID")
+        if not self.save:
+            self.status.showMessage("Load a save game to begin or generate a new character")
+            return
+        chk = "OK" if verify(self.save) else "INVALID"
         dirt = " *modified*" if self.dirty else ""
-        self.status.showMessage(f"{path}  | checksum: {chk}{dirt}")
+        self.status.showMessage(f"{self.save.path}  | checksum: {chk}{dirt}")
 
     def _refresh_ui(self):
         self._populating = True
