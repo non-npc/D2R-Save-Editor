@@ -6,7 +6,7 @@
 
 ## Screenshot
 
-![D2R Save Editor screenshot](screenshot.png)
+![D2R Save Editor screenshot](screenshot.jpg)
 
 ## Features
 
