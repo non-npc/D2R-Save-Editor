@@ -1,6 +1,8 @@
 # D2R Save Editor
 
-**D2R Save Editor** is a free, open-source **Diablo II: Resurrected – Infernal Edition** character save file editor for PC. Edit your D2R `.d2s` save files offline—change character name, level, stats, skills, quests, and waypoints. Works with Diablo 2 Resurrected single-player and offline characters.
+**D2R Save Editor** is an open-source **Diablo II: Resurrected – Infernal Edition** character save file editor for PC. 
+Edit your D2R `.d2s` save files offline—
+change character: name, level, stats, skills, quests, and waypoints. 
 
 > ⚠️ Use at your own risk. Always keep backups. This tool is intended for **offline** saves only.
 
