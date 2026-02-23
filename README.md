@@ -8,6 +8,8 @@ Edit your D2R `.d2s` save files offline—change character:
 * skills,
 * quests,
 * and waypoints.
+
+  
 Items are a work in progress.
 
 > ⚠️ Use at your own risk. Always keep backups. This tool is intended for **offline** saves only.
