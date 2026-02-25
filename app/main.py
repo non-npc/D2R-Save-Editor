@@ -194,7 +194,7 @@ class QuestsTab(QWidget):
             return
         set_quest_completed(save.raw, ent, completed)
         ent.value = int.from_bytes(save.raw[ent.offset:ent.offset+2], "little")
-        self.parent().parent()._mark_dirty()
+        self.window()._mark_dirty()
 
     def _toggle_scroll(self, ent: QuestEntry, consumed: bool):
         save = self._save_ref
@@ -202,7 +202,7 @@ class QuestsTab(QWidget):
             return
         set_prison_of_ice_scroll(save.raw, ent, consumed)
         ent.value = int.from_bytes(save.raw[ent.offset:ent.offset+2], "little")
-        self.parent().parent()._mark_dirty()
+        self.window()._mark_dirty()
 
 class WaypointsTab(QWidget):
     def __init__(self, parent=None):
@@ -271,7 +271,7 @@ class WaypointsTab(QWidget):
             return
         diff = self.diff.currentText()
         set_waypoint(save.raw, save.waypoints, diff, idx, enabled)
-        self.parent().parent()._mark_dirty()
+        self.window()._mark_dirty()
 
 class StatsTab(QWidget):
     """Editable character stats: Strength, Dexterity, Vitality, Energy, Gold, etc."""
@@ -503,7 +503,7 @@ class ItemsTab(QWidget):
         if not save or not save.items or item.advanced:
             return
         set_simple_item_flag_bits(save.raw, item, **kwargs)
-        self.parent().parent()._mark_dirty()
+        self.window()._mark_dirty()
 
 class DiagnosticsTab(QWidget):
     def __init__(self, parent=None):

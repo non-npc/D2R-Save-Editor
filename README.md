@@ -14,7 +14,7 @@
 - **Edit character** — Modify character name, level, stats (Strength, Dexterity, Vitality, Energy, Life, Mana, Gold, Experience), skills, quests, and waypoints
 - **Save / Save As** — Updates file size and checksum automatically; creates `.bak` backups on overwrite
 - **Generate new character** — Create a new D2R character save file from a blank template
-
+- **Keyboard shortcuts** — Ctrl+S (Save), Ctrl+Shift+S (Save As)
 
 ## Install
 
@@ -23,6 +23,12 @@ pip install PyQt6
 ```
 
 ## Run
+
+```bash
+python launcher.py
+```
+
+Or:
 
 ```bash
 python -m app.main
