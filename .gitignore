@@ -71,3 +71,26 @@ Thumbs.db
 
 # Save file backups (created by editor)
 *.bak
+
+# --- 用户私人数据 / 本地文件 (绝不提交) ---
+sync/
+backup/
+*.d2s
+*.d2i
+screen_*.png
+screen_*.jpg
+启动存档编辑器.bat
+
+# --- 从游戏提取的数据表 (版权数据, 用户自行用 tools/casc_extract.py 生成) ---
+tools/extracted/
+d2s/data/i18n_zh.json
+
+# --- 第三方工具二进制 ---
+tools/cascview/
+tools/cascconsole/
+tools/CASCExplorer/
+
+# --- 临时/测试产物 ---
+test_items.py
+test-parse.js
+*.d2s.bak
