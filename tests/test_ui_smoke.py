@@ -1,7 +1,9 @@
-"""UI 冒烟测试 (offscreen): 主窗口绑定存档副本, 词缀增删走真实 UI 代码路径。
+"""UI smoke test (offscreen): main window bound to a save copy; affix
+add/delete exercised through the real UI code paths.
 
-运行: QT_QPA_PLATFORM=offscreen python tests/test_ui_smoke.py
-全程在临时副本上操作, 不触碰 Saved Games 下的真实存档。
+Run: QT_QPA_PLATFORM=offscreen python tests/test_ui_smoke.py
+Everything operates on a temporary copy; the real save under Saved Games is
+never touched.
 """
 import os
 
@@ -19,19 +21,24 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from d2s.io import load_d2s, verify
-from d2s.item_codec import list_addable_props, parse_item_list
+from d2s.item_codec import list_addable_props, parse_item_list, load_i18n
 from app.main import MainWindow, affix_fields_spec, make_skill_combo
 
 from _save_source import ensure_test_save, test_save_path
 SRC_SAVE = ensure_test_save()
+
+# display-text expectations switch on the generated language table; without it
+# the UI (and these assertions) use the English fallbacks
+HAVE_I18N = bool(load_i18n().get("items"))
+
 _PASS = 0
 
 
 def ok(cond, msg: str) -> None:
     global _PASS
-    assert cond, f"断言失败: {msg}"
+    assert cond, f"assertion failed: {msg}"
     _PASS += 1
-    print(f"  [通过] {msg}")
+    print(f"  [ok] {msg}")
 
 
 def find_row_with_text(tab, col: int, text: str) -> int:
@@ -47,7 +54,7 @@ def main():
     dst = os.path.join(tmp, "Amenda.d2s")
     shutil.copy2(SRC_SAVE, dst)
 
-    # 静默模态弹窗 (记录调用即可)
+    # silence modal dialogs (record calls only)
     shown = []
     QMessageBox.information = lambda *a, **k: shown.append("info") or QMessageBox.StandardButton.Ok
     QMessageBox.question = lambda *a, **k: shown.append("question") or QMessageBox.StandardButton.Yes
@@ -60,121 +67,126 @@ def main():
     win._refresh_ui()
     tab = win.items
     try:
-        print("== 主窗口绑定 ==")
-        ok(win.tabs.isTabEnabled(win.tabs.indexOf(tab)), "物品编辑页已启用")
-        ok(tab.item_combo.count() == 67, f"物品下拉框 67 项 (实际 {tab.item_combo.count()})")
-        ok(tab.props_table.columnCount() == 5, "词缀表 5 列 (含操作列)")
+        print("== main window binding ==")
+        ok(win.tabs.isTabEnabled(win.tabs.indexOf(tab)), "items tab enabled")
+        ok(tab.item_combo.count() == 67, f"item combo has 67 entries (got {tab.item_combo.count()})")
+        ok(tab.props_table.columnCount() == 5, "affix table has 5 columns (incl. action column)")
 
-        print("== 选中头盔并查看词缀 ==")
+        print("== select helm and inspect affixes ==")
         tab.item_combo.setCurrentIndex(10)
         tab._show_props(10)
-        ok(tab.props_table.rowCount() >= 2, f"头盔词缀行数 {tab.props_table.rowCount()} >= 2")
+        ok(tab.props_table.rowCount() >= 2, f"helm affix rows {tab.props_table.rowCount()} >= 2")
         del_btns = [tab.props_table.cellWidget(r, 4) for r in range(tab.props_table.rowCount())
                     if tab.props_table.cellWidget(r, 4) is not None]
-        ok(len(del_btns) >= 2, f"每条词缀行都有删除按钮 ({len(del_btns)} 个)")
+        ok(len(del_btns) >= 2, f"every affix row has a delete button ({len(del_btns)})")
 
-        print("== 技能下拉框 ==")
+        print("== skill combo ==")
         combo = make_skill_combo()
-        ok(combo.count() == 429, f"技能下拉 429 项 (实际 {combo.count()})")
-        hit = [i for i in range(combo.count()) if "微暗灵视" in combo.itemText(i)]
-        ok(bool(hit) and combo.itemData(hit[0]) == 71, f"搜索到 '微暗灵视' -> 技能id {combo.itemData(hit[0])}")
+        ok(combo.count() == 429, f"skill combo has 429 entries (got {combo.count()})")
+        needle = "微暗灵视" if HAVE_I18N else "Dim Vision"
+        hit = [i for i in range(combo.count()) if needle in combo.itemText(i)]
+        ok(bool(hit) and combo.itemData(hit[0]) == 71, f"searching {needle!r} -> skill id {combo.itemData(hit[0])}")
 
-        print("== 添加对话框参数显隐 ==")
+        print("== add-affix dialog param visibility ==")
         props = list_addable_props()
-        dlg, c, vs, w = tab._build_affix_dialog("冒烟测试", props)
+        dlg, c, vs, w = tab._build_affix_dialog("smoke test", props)
         i204 = next(i for i in range(c.count()) if c.itemData(i)["id"] == 204)
         c.setCurrentIndex(i204)
-        ok(not w["lbl_cur"].isHidden(), "聚气词缀显示 当前次数 输入")
-        ok(not w["max_spin"].isHidden(), "聚气词缀显示 最大次数 输入")
-        ok(w["lbl_tab"].isHidden(), "聚气词缀不显示 技能页 输入")
+        ok(not w["lbl_cur"].isHidden(), "charged prop shows the current-charges input")
+        ok(not w["max_spin"].isHidden(), "charged prop shows the max-charges input")
+        ok(w["lbl_tab"].isHidden(), "charged prop hides the skill-tab input")
         i195 = next(i for i in range(c.count()) if c.itemData(i)["id"] == 195)
         c.setCurrentIndex(i195)
-        ok(not w["level_spin"].isHidden(), "触发词缀显示 技能等级 输入")
-        ok(w["lbl_cur"].isHidden(), "触发词缀不显示 次数 输入")
-        ok("概率" in w["lbl_value"].text(), f"触发词缀数值标签 = {w['lbl_value'].text()!r}")
+        ok(not w["level_spin"].isHidden(), "trigger prop shows the skill-level input")
+        ok(w["lbl_cur"].isHidden(), "trigger prop hides the charges input")
+        ok("概率" in w["lbl_value"].text() or "Chance" in w["lbl_value"].text(),
+           f"trigger prop value label = {w['lbl_value'].text()!r}")
         i7 = next(i for i in range(c.count()) if c.itemData(i)["id"] == 7)
         c.setCurrentIndex(i7)
-        ok(w["skill_combo"].isHidden() and not w["value_spin"].isHidden(), "纯数值词缀只显示数值输入")
+        ok(w["skill_combo"].isHidden() and not w["value_spin"].isHidden(), "plain prop shows only the value input")
         dlg.deleteLater()
 
-        print("== UI 添加聚气词缀 (_do_add_affix) ==")
+        print("== UI add charged affix (_do_add_affix) ==")
+        dim = "微暗灵视" if HAVE_I18N else "Dim Vision"
         p204 = next(p for p in props if p["id"] == 204)
         spec = affix_fields_spec(p204, skill_id=71, level=5, cur=18, mx=25)
         tab._do_add_affix(win.save, 10, p204, spec)
-        ok(win.dirty, "添加后标记 dirty")
-        row = find_row_with_text(tab, 0, "微暗灵视")
-        ok(row >= 0, f"词缀表出现新词缀行 (第 {row} 行)")
-        ok("18/25" in tab.props_table.item(row, 0).text(), f"行文本含充能数: {tab.props_table.item(row, 0).text()!r}")
+        ok(win.dirty, "dirty flag set after add")
+        row = find_row_with_text(tab, 0, dim)
+        ok(row >= 0, f"affix table shows the new prop row (row {row})")
+        ok("18/25" in tab.props_table.item(row, 0).text(), f"row text contains charges: {tab.props_table.item(row, 0).text()!r}")
         items = parse_item_list(bytes(win.save.raw), win.save.items.offset, version=win.save.header.version)
-        ok(len(items) == 67, "添加后 67 件物品仍完整解析")
+        ok(len(items) == 67, "all 67 items still fully parse after the add")
 
-        print("== UI 删除词缀 (删除按钮点击) ==")
+        print("== UI delete affix (delete button click) ==")
         btn = tab.props_table.cellWidget(row, 4)
-        ok(btn is not None, "新词缀行有删除按钮")
+        ok(btn is not None, "new affix row has a delete button")
         btn.click()
-        ok("question" in shown, "删除前弹出确认框")
-        row_after = find_row_with_text(tab, 0, "微暗灵视")
-        ok(row_after < 0, "删除后词缀行消失")
+        ok("question" in shown, "confirmation dialog shown before delete")
+        row_after = find_row_with_text(tab, 0, dim)
+        ok(row_after < 0, "affix row gone after delete")
         items2 = parse_item_list(bytes(win.save.raw), win.save.items.offset, version=win.save.header.version)
         helm = items2[10]
-        ok(all(p["id"] != 204 for p in helm["magic_attributes"]), "头盔词缀表中聚气词缀已删除")
-        ok(len(items2) == 67, "删除后 67 件物品仍完整解析")
+        ok(all(p["id"] != 204 for p in helm["magic_attributes"]), "charged prop deleted from the helm")
+        ok(len(items2) == 67, "all 67 items still fully parse after the delete")
 
-        print("== UI 添加技能词缀 (singleskill) ==")
+        print("== UI add skill affix (singleskill) ==")
         p107 = next(p for p in props if p["id"] == 107)
         spec = affix_fields_spec(p107, skill_id=373, value=2)
         tab._do_add_affix(win.save, 10, p107, spec)
-        row = find_row_with_text(tab, 0, "召唤羊头人")
-        ok(row >= 0, "词缀表出现 +2 至召唤羊头人")
+        row = find_row_with_text(tab, 0, "召唤羊头人" if HAVE_I18N else "Summon Dire Wolf")
+        ok(row >= 0, "affix table shows +2 to the skill")
         items3 = parse_item_list(bytes(win.save.raw), win.save.items.offset, version=win.save.header.version)
         p = items3[10]["magic_attributes"][-1]
         ok(p["id"] == 107 and p["fields"][0]["param"] == 373 and p["fields"][0]["value"] == 2,
-           "重新解析读回 id/param/value 一致")
+           "re-parse reads back identical id/param/value")
 
-        print("== 格子显示与点击选择 ==")
-        # 完整解析填充: 身上装备格显示中文物品名 (full_items[10] = 头盔, equipped_id=1)
+        print("== cell display and click selection ==")
+        # full-parse fill: equipped slot shows the item name (full_items[10] = helm, equipped_id=1)
         helm_lbl = tab.equipped_slots[1]
-        ok("头盔" in helm_lbl.text(), f"头盔格显示中文物品名: {helm_lbl.text()!r}")
+        ok("头盔" in helm_lbl.text() if HAVE_I18N else "Cap" in helm_lbl.text(),
+           f"helm cell shows the item name: {helm_lbl.text()!r}")
         book_lbl = tab.inv_cells[(0, 0)]
-        ok("城镇传送之书" in book_lbl.text() and "×27" in book_lbl.text(),
-           f"背包格(0,0)显示物品名与数量: {book_lbl.text()!r}")
+        book_name = "城镇传送之书" if HAVE_I18N else "Town Portal Book"
+        ok(book_name in book_lbl.text() and "×27" in book_lbl.text(),
+           f"inventory cell (0,0) shows name and quantity: {book_lbl.text()!r}")
         empty_lbl = tab.inv_cells[(2, 0)]
-        ok(empty_lbl.text() == "—", "背包空格子仍显示占位符")
+        ok(empty_lbl.text() == "—", "empty inventory cell keeps the placeholder")
 
-        # 模拟点击处理函数: 头盔格 → 下拉框指向索引 10
+        # simulate click handler: helm cell -> combo points at index 10
         tab._select_by_slot("equipped", 1)
         ok(tab.item_combo.currentIndex() == 10,
-           f"点击头盔格 → 下拉框索引 {tab.item_combo.currentIndex()}")
-        ok(tab.props_table.rowCount() > 0, "点击格子后词缀表行数 > 0")
-        ok("c7b377" in tab._equipped_frames[1].styleSheet(), "选中格子边框高亮")
+           f"clicking the helm cell -> combo index {tab.item_combo.currentIndex()}")
+        ok(tab.props_table.rowCount() > 0, "affix table has rows after cell click")
+        ok("c7b377" in tab._equipped_frames[1].styleSheet(), "selected cell border highlighted")
 
-        # 真实鼠标点击背包格 (0,0) 城镇传送之书 (full_items 索引 64)
+        # real mouse click on inventory cell (0,0) Town Portal Book (full_items index 64)
         QTest.mouseClick(tab.inv_cells[(0, 0)], Qt.MouseButton.LeftButton)
         ok(tab.item_combo.currentIndex() == 64,
-           f"鼠标点击背包格 → 下拉框索引 {tab.item_combo.currentIndex()}")
-        ok("c7b377" not in tab._equipped_frames[1].styleSheet(), "切换选择后旧高亮清除")
-        ok("c7b377" in tab._inv_frames[(0, 0)].styleSheet(), "新选中格子高亮")
+           f"mouse click on inventory cell -> combo index {tab.item_combo.currentIndex()}")
+        ok("c7b377" not in tab._equipped_frames[1].styleSheet(), "old highlight cleared after switching selection")
+        ok("c7b377" in tab._inv_frames[(0, 0)].styleSheet(), "newly selected cell highlighted")
 
-        # 空格子点击无反应
+        # clicking an empty cell does nothing
         before = tab.item_combo.currentIndex()
         tab._select_by_slot("inv", (2, 0))
-        ok(tab.item_combo.currentIndex() == before, "点击空格子无反应")
+        ok(tab.item_combo.currentIndex() == before, "clicking an empty cell does nothing")
 
-        # 无 full_items 时点击无反应且不崩溃
+        # clicking with no full_items does nothing and does not crash
         saved_full = tab.full_items
         tab.full_items = []
         tab._select_by_slot("equipped", 1)
-        ok(tab.item_combo.currentIndex() == before, "无完整解析时点击格子无反应")
+        ok(tab.item_combo.currentIndex() == before, "cell click without full parse does nothing")
         tab.full_items = saved_full
 
-        print("== UI 保存 (Ctrl+S 路径) ==")
+        print("== UI save (Ctrl+S path) ==")
         win.save_file()
         save2 = load_d2s(win.save.path)
-        ok(verify(save2), "保存后重新加载 verify() 校验和为 True")
-        ok(save2.path == dst, "保存路径为临时副本 (未触碰真实存档)")
+        ok(verify(save2), "after save, reloaded verify() checksum is True")
+        ok(save2.path == dst, "saved to the temp copy (real save untouched)")
         ok(len(parse_item_list(bytes(save2.raw), save2.items.offset, version=save2.header.version)) == 67,
-           "保存后的文件 67 件物品完整解析")
-        print(f"\nUI 冒烟全部通过: {_PASS} 条断言, 弹窗调用 {len(shown)} 次。")
+           "saved file parses all 67 items")
+        print(f"\nUI smoke all passed: {_PASS} assertions, {len(shown)} dialog calls.")
     finally:
         win.close()
         shutil.rmtree(tmp, ignore_errors=True)

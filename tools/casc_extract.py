@@ -62,7 +62,7 @@ def load_indices():
             archive = (hi << 2) | (low >> 30)
             offset = low & 0x3FFFFFFF
             index[key] = (archive, offset, size)
-        print(f"  idx {os.path.basename(path)}: {n} 项")
+        print(f"  idx {os.path.basename(path)}: {n} entries")
     return index
 
 
@@ -120,24 +120,26 @@ def read_by_ckey(ckey: bytes) -> bytes:
     """CKey -> encoding -> EKey -> blob -> BLTE decode"""
     ekeys = ENCODING.get(ckey)
     if not ekeys:
-        raise KeyError("encoding 中无此 CKey: " + ckey.hex())
+        raise KeyError("CKey not found in encoding: " + ckey.hex())
     for ek in ekeys:
         block = find_blob(ek)
         if block:
-            return blte_decode(block[30:])  # 跳过 30 字节块头
-    raise KeyError("idx 中无此 EKey: " + ekeys[0].hex())
+            return blte_decode(block[30:])  # skip the 30-byte block header
+    raise KeyError("EKey not found in any idx: " + ekeys[0].hex())
 
 
 def parse_encoding(enc: bytes, anchor_ckey: bytes = None):
-    """encoding: 线性扫描入口表 [u8 count][u32BE size][16 CKey][count*16 EKey]
-    anchor_ckey: 已知的一个 CKey, 用于校准入口表起点"""
+    """encoding file: linear scan of the entry table [u8 count][u32BE size]
+    [16 CKey][count*16 EKey].
+    anchor_ckey: a known CKey used to calibrate the entry table start."""
     n = len(enc)
     anchor_pos = enc.find(anchor_ckey) if anchor_ckey else -1
 
     def walk(start):
-        """从 start 走到 anchor; 返回 (ok, entries)
-        D2R 条目布局: [u8 count][u32BE size][u8 flags][16 CKey][count*16 EKey]
-        表分多块, 块尾 count=0 + 填充; CKey 全局单调递增"""
+        """Walk from start to the anchor; returns (ok, entries).
+        D2R entry layout: [u8 count][u32BE size][u8 flags][16 CKey][count*16 EKey].
+        The table is split into blocks; a block ends with count=0 + padding;
+        CKeys are strictly monotonically increasing."""
         p = start
         table = {}
         anchor_ok = anchor_pos < 0
@@ -150,7 +152,7 @@ def parse_encoding(enc: bytes, anchor_ckey: bytes = None):
                 anchor_ok = True
             count = enc[p]
             if count == 0:
-                # 块尾: 向前扫到下一个合法入口 (count 合法 + size 合理 + ckey 递增)
+                # block tail: scan forward to the next valid entry (sane count + sane size + increasing ckey)
                 p += 1
                 while p + 22 <= n:
                     c2 = enc[p]
@@ -186,18 +188,18 @@ def parse_encoding(enc: bytes, anchor_ckey: bytes = None):
             continue
         ok, table = walk(start)
         if ok:
-            print(f"  encoding: 入口表起点 {hex(start)}, 共 {len(table)} 条")
+            print(f"  encoding: entry table starts at {hex(start)}, {len(table)} entries")
             return table
-    raise ValueError("encoding 入口表解析失败")
+    raise ValueError("failed to parse the encoding entry table")
 
 
 def lookup_ckey(ckey: bytes) -> bytes:
-    """在 encoding 二进制里直接定位 CKey 条目, 取其第一个 EKey"""
+    """Locate a CKey entry directly in the raw encoding binary, take its first EKey"""
     pos = 0
     while True:
         pos = ENC_RAW.find(ckey, pos)
         if pos < 0:
-            raise KeyError("encoding 中无此 CKey: " + ckey.hex())
+            raise KeyError("CKey not found in encoding: " + ckey.hex())
         count = ENC_RAW[pos - 6]
         size = struct.unpack_from(">I", ENC_RAW, pos - 5)[0]
         if 1 <= count <= 8 and size < (1 << 31):
@@ -206,7 +208,7 @@ def lookup_ckey(ckey: bytes) -> bytes:
 
 
 def parse_root(root: bytes) -> dict:
-    """D2R root: 每行 '路径|哈希|平台|...' -> 路径 -> 哈希"""
+    """D2R root: each line 'path|hash|platform|...' -> path -> hash"""
     files = {}
     for line in root.split(b"\n"):
         parts = line.decode("utf-8", "replace").strip().split("|")
@@ -218,7 +220,7 @@ def parse_root(root: bytes) -> dict:
                 files[path.lower()] = bytes.fromhex(parts[1])
             except ValueError:
                 pass
-    print("  root 条目数:", len(files))
+    print("  root entries:", len(files))
     return files
 
 
@@ -235,36 +237,36 @@ def main():
     enc_hashes = cfg_field("encoding")
     enc_ekey = bytes.fromhex(enc_hashes[1])
 
-    print("加载 .idx 索引...")
+    print("Loading .idx indices...")
     INDEX = load_indices()
-    print("索引总数:", len(INDEX))
+    print("Total index entries:", len(INDEX))
 
-    print("读取 encoding 文件...")
+    print("Reading encoding file...")
     block = find_blob(enc_ekey)
     if not block:
-        raise KeyError("idx 中无 encoding EKey")
+        raise KeyError("encoding EKey not found in any idx")
     ENC_RAW = blte_decode(block[30:])
 
-    print("读取 root 文件...")
+    print("Reading root file...")
     root_ekey = lookup_ckey(root_ckey)
     block = find_blob(root_ekey)
     if not block:
-        raise KeyError("idx 中无 root EKey: " + root_ekey.hex())
+        raise KeyError("root EKey not found in any idx: " + root_ekey.hex())
     root_raw = blte_decode(block[30:])
-    print("root 大小:", len(root_raw))
+    print("root size:", len(root_raw))
     root_files = parse_root(root_raw)
 
     if "--list" in sys.argv:
         pat = sys.argv[sys.argv.index("--list") + 1].lower()
         hits = [k for k in sorted(root_files) if pat in k]
-        print(f"匹配 {len(hits)} 条:")
+        print(f"{len(hits)} matches:")
         for k in hits:
             print(" ", k)
         return
 
     os.makedirs(OUT_DIR, exist_ok=True)
     wanted = list(WANTED)
-    # 额外路径: python casc_extract.py <game> <out> -- <extra/path1> <extra/path2>
+    # extra paths: python casc_extract.py <game> <out> -- <extra/path1> <extra/path2>
     if "--" in sys.argv:
         wanted += [p.strip("/").lower() for p in sys.argv[sys.argv.index("--") + 1:]]
     ok = 0
@@ -272,26 +274,26 @@ def main():
         path = name if "/" in name else "data/global/excel/" + name
         h = root_files.get(path)
         if h is None:
-            print("root 中无:", path)
+            print("not in root:", path)
             continue
-        # 先当 EKey 直接找, 再当 CKey 走 encoding
+        # try the hash as a direct EKey first, then as a CKey via encoding
         block = find_blob(h)
         if not block:
             try:
                 ekey = lookup_ckey(h)
             except KeyError:
-                print("无法解析:", path)
+                print("cannot resolve:", path)
                 continue
             block = find_blob(ekey)
             if not block:
-                print("idx 中无 EKey:", path)
+                print("EKey not found in idx:", path)
                 continue
         data = blte_decode(block[30:])
         out_path = os.path.join(OUT_DIR, os.path.basename(path))
         open(out_path, "wb").write(data)
-        print(f"提取成功: {path} ({len(data)} 字节)")
+        print(f"extracted: {path} ({len(data)} bytes)")
         ok += 1
-    print(f"完成, 共 {ok}/{len(wanted)} 个文件")
+    print(f"done, {ok}/{len(wanted)} files")
 
 
 if __name__ == "__main__":

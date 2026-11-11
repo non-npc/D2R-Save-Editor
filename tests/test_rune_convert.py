@@ -1,9 +1,11 @@
-"""符文转换行为自检: change_item_type 位流手术 + ItemsTab 符文转换控件。
+"""Rune conversion behavior checks: change_item_type bit surgery + the
+ItemsTab rune conversion controls.
 
-全程在 sync/Amenda.d2s 的临时副本上操作, 绝不触碰 Saved Games 下的真实存档。
-运行:
-  python tests/test_rune_convert.py           (纯编解码部分)
-  QT_QPA_PLATFORM=offscreen 环境 OK           (UI 部分自动跳过条件见下)
+Everything runs on a temporary copy of sync/Amenda.d2s; the real save under
+Saved Games is never touched.
+Run:
+  python tests/test_rune_convert.py           (pure codec parts)
+  also fine under QT_QPA_PLATFORM=offscreen   (see the UI part's skip logic)
 """
 import os
 import shutil
@@ -22,24 +24,30 @@ from d2s.item_codec import (
 )
 from app.main import RUNE_EN_NAMES
 
+# display-text expectations switch on the generated language table
+HAVE_I18N = bool(load_i18n().get("items"))
+ITEMS_I18N = load_i18n().get("items", {})
+
 
 def span_end_of(items, idx: int):
-    """物品实际占用跨度末尾 (= 下一顶层物品起始位; 尾部全零对齐字节随物品)。"""
+    """End of the bit span the item actually occupies (= next top-level item's
+    start bit; its trailing zero alignment byte travels with the item)."""
     nxt = items[idx + 1] if idx + 1 < len(items) else None
     return nxt["_start_bit"] if nxt is not None else None
+
 
 _PASS = 0
 
 
 def ok(cond, msg: str) -> None:
     global _PASS
-    assert cond, f"断言失败: {msg}"
+    assert cond, f"assertion failed: {msg}"
     _PASS += 1
-    print(f"  [通过] {msg}")
+    print(f"  [ok] {msg}")
 
 
 def make_tmp_save(tag: str):
-    """复制存档到临时目录并加载 (测试完由调用方清理)。"""
+    """Copy the save to a temp dir and load it (caller cleans up)."""
     tmp = tempfile.mkdtemp(prefix=f"d2r_test_rune_{tag}_")
     dst = os.path.join(tmp, "Amenda.d2s")
     shutil.copy2(SRC_SAVE, dst)
@@ -58,121 +66,133 @@ def find_rune(items, code: str):
 
 
 def loc_sig(it: dict) -> tuple:
-    """位置签名: (location_id, equipped_id, alt_position_id, x, y) — 转换不得改变。"""
+    """Location signature: (location_id, equipped_id, alt_position_id, x, y) —
+    conversions must never change it."""
     return (it.get("location_id"), it.get("equipped_id"), it.get("alt_position_id"),
             it.get("position_x"), it.get("position_y"))
 
 
 def items_sig(items: list) -> list:
-    """全部物品的 (类型代码, 位置签名) 列表 — 往返转换后应逐件一致。"""
+    """(type code, location signature) of every item — must match item-by-item
+    after a roundtrip conversion."""
     return [((it.get("type") or "").strip(), loc_sig(it)) for it in items]
 
 
 def save_and_verify(save, tag: str):
     save_d2s(save, path=save.path, make_backup=False)
     save2 = load_d2s(save.path)
-    ok(verify(save2), f"[{tag}] save_d2s 后重新加载 verify() 校验和为 True")
+    ok(verify(save2), f"[{tag}] after save_d2s, reloaded verify() checksum is True")
+
+
+def rune_label(code: str) -> str:
+    """Expected combo display for a rune: '<zh> (<En>)' with the language
+    table, else '<En> (<code>)'."""
+    en = RUNE_EN_NAMES[code]
+    zh = ITEMS_I18N.get(code)
+    return f"{zh} ({en})" if zh else f"{en} ({code})"
 
 
 # ---------------------------------------------------------------------------
 
 
 def test_i18n_rune_coverage():
-    print("== i18n: r01-r33 中文覆盖 ==")
+    print("== i18n: r01-r33 zh coverage ==")
     items = load_i18n().get("items", {})
     missing = [c for c in sorted(RUNE_EN_NAMES) if not items.get(c)]
-    ok(not missing, f"r01-r33 全部有中文名 (缺失: {missing or '无'})")
-    ok(len(RUNE_EN_NAMES) == 33, f"代码表 33 项 (实际 {len(RUNE_EN_NAMES)})")
+    ok(not missing, f"all r01-r33 have zh names (missing: {missing or 'none'})")
+    ok(len(RUNE_EN_NAMES) == 33, f"code table has 33 entries (got {len(RUNE_EN_NAMES)})")
     ok(items.get("r07") == "塔尔符文" and items.get("r33") == "萨德符文",
        f"r07={items.get('r07')!r} r33={items.get('r33')!r}")
-    # 基础物品表也能解析 r07 / r33 (类型代码必须真实存在于游戏数据)
+    # the base item tables must also resolve r07 / r33 (the type codes must
+    # really exist in the game data)
     constants = load_constants()
     for code in ("r07", "r33"):
         found = any(code in constants[t] for t in ("armor_items", "weapon_items", "other_items"))
-        ok(found, f"{code} 在基础物品表中存在 (可解析可写回)")
+        ok(found, f"{code} exists in the base item tables (parseable, writable)")
 
 
 def test_convert_r07_to_r33():
-    print("== 转换: 储物处 Tal Rune (r07) -> Zod (r33) ==")
+    print("== convert: stash Tal Rune (r07) -> Zod (r33) ==")
     save, tmp = make_tmp_save("to33")
     try:
         items = reparse(save)
-        ok(len(items) == 67, f"基线解析 67 件物品 (实际 {len(items)})")
+        ok(len(items) == 67, f"baseline parses 67 items (got {len(items)})")
         idx, rune = find_rune(items, "r07")
-        ok(rune is not None, f"找到 Tal Rune (r07) 样本, 索引 {idx}")
-        ok(rune.get("simple_item") == 1, "符文是简单物品 (simple_item==1, 支持类型更换)")
+        ok(rune is not None, f"found Tal Rune (r07) sample at index {idx}")
+        ok(rune.get("simple_item") == 1, "rune is a simple item (simple_item==1, type change supported)")
         loc_before = loc_sig(rune)
         sig_before = items_sig(items)
         span_end = span_end_of(items, idx)
         ok(span_end is not None and span_end - rune["_end_bit"] == 8,
-           f"符文尾部有全零对齐/堆叠字节 (span_end - _end_bit = {span_end - rune['_end_bit']})")
+           f"rune has a trailing zero alignment/stack byte (span_end - _end_bit = {span_end - rune['_end_bit']})")
         raw_before = bytes(save.raw)
         n_before = len(save.raw)
 
         change_item_type(save.raw, rune, "r33", span_end=span_end)
 
-        ok(len(save.raw) == n_before, f"变长转换 (r07 20位 -> r33 21位) 文件长度不变 ({n_before})")
+        ok(len(save.raw) == n_before, f"growing conversion (r07 20 bits -> r33 21 bits) keeps file length {n_before}")
         ok(bytes(save.raw[span_end // 8:]) == raw_before[span_end // 8:],
-           "物品跨度之后的字节逐字节不变 (其余物品未受影响)")
+           "bytes after the item span unchanged (other items untouched)")
         items2 = reparse(save)
-        ok(len(items2) == 67, "转换后 67 件物品仍完整解析 (物品数不变)")
+        ok(len(items2) == 67, "67 items still fully parse after conversion (count unchanged)")
         idx2, rune2 = find_rune(items2, "r33")
-        ok(idx2 == idx and rune2 is not None, f"重新解析读回类型 'r33' (同一索引 {idx2})")
-        ok(loc_sig(rune2) == loc_before, f"位置保持不变: {loc_sig(rune2)}")
+        ok(idx2 == idx and rune2 is not None, f"re-parse reads back type 'r33' (same index {idx2})")
+        ok(loc_sig(rune2) == loc_before, f"location unchanged: {loc_sig(rune2)}")
         title = describe_item(rune2)["title"]
-        ok("萨德" in title, f"中文标题显示符文名: {title!r}")
-        ok(all((it.get("type") or "").strip() != "r07" for it in items2), "原 r07 已不存在")
+        ok("萨德" in title if HAVE_I18N else "Zod" in title, f"title shows the rune name: {title!r}")
+        ok(all((it.get("type") or "").strip() != "r07" for it in items2), "original r07 gone")
         sig_after = list(items_sig(items2))
-        sig_after[idx2] = sig_before[idx]  # 目标物品自身已是 r33
-        ok(sig_after == sig_before, "转换后其余 66 件物品类型/位置逐件一致")
+        sig_after[idx2] = sig_before[idx]  # the target item itself is r33 now
+        ok(sig_after == sig_before, "other 66 items type/location identical after conversion")
         save_and_verify(save, "r07->r33")
 
-        # 往返: r33 -> r07, 应精确还原原始字节流
+        # roundtrip: r33 -> r07, must restore the original byte stream exactly
         items3 = reparse(save)
         _, rune3 = find_rune(items3, "r33")
         change_item_type(save.raw, rune3, "r07", span_end=span_end_of(items3, idx))
         items4 = reparse(save)
         _, rune4 = find_rune(items4, "r07")
-        ok(rune4 is not None and loc_sig(rune4) == loc_before, "转回 'r07': 类型与位置一致")
-        ok(items_sig(items4) == sig_before, "往返转换后全部 67 件物品类型/位置与基线逐件一致")
+        ok(rune4 is not None and loc_sig(rune4) == loc_before, "converted back to 'r07': type and location match")
+        ok(items_sig(items4) == sig_before, "after the roundtrip all 67 items type/location match the baseline")
         save_and_verify(save, "r33->r07")
-        # 内容还原后 save_d2s 重算的校验和与原文件一致 -> 整个文件逐字节还原
-        ok(bytes(save.raw) == raw_before, "往返转换并保存后整个文件与原始逐字节一致")
+        # with contents restored, the checksum save_d2s recomputes matches the
+        # original file -> the whole file is restored byte-for-byte
+        ok(bytes(save.raw) == raw_before, "after the roundtrip + save the whole file is byte-identical to the original")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_roundtrip_byte_identity():
-    print("== 字节还原: 等霍夫曼位长的目标码 (r07<->r09, 均为20位) 往返 ==")
+    print("== byte restore: equal Huffman bit length target codes (r07<->r09, both 20 bits) roundtrip ==")
     save, tmp = make_tmp_save("identity")
     try:
         items = reparse(save)
         idx, rune = find_rune(items, "r07")
-        ok(rune is not None, "找到 Tal Rune (r07)")
+        ok(rune is not None, "found Tal Rune (r07)")
         n07 = len(encode_type_code("r07 "))
         n09 = len(encode_type_code("r09 "))
-        ok(n07 == n09, f"r07/r09 类型码位长相等 ({n07} == {n09}, 字节还原可行)")
+        ok(n07 == n09, f"r07/r09 type codes have equal bit length ({n07} == {n09}, byte restore feasible)")
         raw_before = bytes(save.raw)
         change_item_type(save.raw, rune, "r09", span_end=span_end_of(reparse(save), idx))
         items2 = reparse(save)
         idx2, rune2 = find_rune(items2, "r09")
-        ok(idx2 == idx and rune2 is not None, "读回类型 'r09' (同一索引)")
+        ok(idx2 == idx and rune2 is not None, "reads back type 'r09' (same index)")
         change_item_type(save.raw, rune2, "r07", span_end=span_end_of(items2, idx))
         items3 = reparse(save)
-        ok(find_rune(items3, "r07")[0] == idx, "转回 'r07'")
-        ok(bytes(save.raw) == raw_before, "等位长往返转换后字节流与原始完全一致")
-        save_and_verify(save, "r09往返")
+        ok(find_rune(items3, "r07")[0] == idx, "converted back to 'r07'")
+        ok(bytes(save.raw) == raw_before, "equal-length roundtrip restores the byte stream exactly")
+        save_and_verify(save, "r09 roundtrip")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_sweep_all_33_codes():
-    print("== 全量: r07 依次转为 r01..r33 共 33 个目标码, 再转回 ==")
+    print("== sweep: r07 converted to all 33 target codes r01..r33 in turn, then back ==")
     save, tmp = make_tmp_save("sweep")
     try:
         items = reparse(save)
         idx, rune = find_rune(items, "r07")
-        ok(rune is not None, "找到 Tal Rune (r07)")
+        ok(rune is not None, "found Tal Rune (r07)")
         sig_before = items_sig(items)
         loc_before = loc_sig(rune)
         raw_before = bytes(save.raw)
@@ -184,66 +204,67 @@ def test_sweep_all_33_codes():
             cur = find_rune(items_now, (cur.get("type") or "").strip())[1]
             change_item_type(save.raw, cur, code, span_end=span_end_of(items_now, idx))
             items2 = reparse(save)
-            ok(len(save.raw) == n_before, f"-> {code} 文件长度不变")
+            ok(len(save.raw) == n_before, f"-> {code} file length unchanged")
             cur = find_rune(items2, code)[1]
             ok(cur is not None and loc_sig(cur) == loc_before,
-               f"-> {code} ({RUNE_EN_NAMES[code]}) 读回并保持位置")
+               f"-> {code} ({RUNE_EN_NAMES[code]}) reads back and keeps its location")
         items3 = reparse(save)
         change_item_type(save.raw, find_rune(items3, "r33")[1], "r07",
                          span_end=span_end_of(items3, idx))
         back = find_rune(reparse(save), "r07")[1]
-        ok(back is not None, "转回 r07")
-        ok(items_sig(reparse(save)) == sig_before, "33 次转换后全部物品类型/位置与基线逐件一致")
-        ok(bytes(save.raw) == raw_before, "33 次转换后整个文件字节流与原始完全一致")
+        ok(back is not None, "converted back to r07")
+        ok(items_sig(reparse(save)) == sig_before, "after 33 conversions all items type/location match the baseline")
+        ok(bytes(save.raw) == raw_before, "after 33 conversions the whole file byte stream matches the original")
         save_and_verify(save, "sweep")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_reject_invalid():
-    print("== 拒绝: 非简单物品 / 非法类型码 ==")
+    print("== reject: non-simple items / invalid type codes ==")
     save, tmp = make_tmp_save("reject")
     try:
         items = reparse(save)
         helm = next(it for it in items if it.get("type") == "hlm")
-        ok(helm.get("simple_item") != 1, "头盔是非简单物品 (advanced)")
+        ok(helm.get("simple_item") != 1, "helm is not a simple item (advanced)")
         try:
             change_item_type(save.raw, helm, "r33")
-            ok(False, "非简单物品应抛 ValueError")
+            ok(False, "non-simple item must raise ValueError")
         except ValueError:
-            ok(True, "非简单物品抛 ValueError (拒绝)")
+            ok(True, "non-simple item raises ValueError (rejected)")
         _, rune = find_rune(items, "r07")
         try:
             change_item_type(save.raw, rune, "r@@")
-            ok(False, "非法类型码应抛 ValueError")
+            ok(False, "invalid type code must raise ValueError")
         except ValueError:
-            ok(True, "非法类型码 (无法霍夫曼编码) 抛 ValueError")
-        # 变长但无尾部填充字节可抵扣 (span_end 传 _end_bit) -> 拒绝, 存档未动
+            ok(True, "invalid type code (not Huffman-encodable) raises ValueError")
+        # growing conversion with no trailing padding available (span_end =
+        # _end_bit) -> rejected, save untouched
         raw_before = bytes(save.raw)
         try:
-            change_item_type(save.raw, rune, "r04", span_end=rune["_end_bit"])  # 20->23 位
-            ok(False, "无填充字节时变长转换应抛 ValueError")
+            change_item_type(save.raw, rune, "r04", span_end=rune["_end_bit"])  # 20->23 bits
+            ok(False, "growing conversion without padding must raise ValueError")
         except ValueError:
-            ok(True, "无全零填充可抵扣时变长转换抛 ValueError (拒绝)")
+            ok(True, "growing conversion with no zero padding raises ValueError (rejected)")
         try:
-            change_item_type(save.raw, rune, "r05", span_end=0)  # 跨度异常
-            ok(False, "跨度异常应抛 ValueError")
+            change_item_type(save.raw, rune, "r05", span_end=0)  # bad span
+            ok(False, "bad span must raise ValueError")
         except ValueError:
-            ok(True, "span_end 异常 (0) 抛 ValueError (拒绝)")
-        ok(bytes(save.raw) == raw_before, "拒绝路径不改动任何字节")
-        ok(find_rune(reparse(save), "r07")[1] is not None, "拒绝后存档未损坏 (r07 仍可解析)")
+            ok(True, "bad span_end (0) raises ValueError (rejected)")
+        ok(bytes(save.raw) == raw_before, "rejection paths never modify any byte")
+        ok(find_rune(reparse(save), "r07")[1] is not None, "save not corrupted after rejections (r07 still parses)")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_ui_rune_convert():
-    print("== UI: 符文转换控件 (offscreen, 弹窗打桩) ==")
+    print("== UI: rune conversion controls (offscreen, dialogs stubbed) ==")
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PyQt6.QtWidgets import QApplication, QMessageBox
         from app.main import MainWindow
     except Exception as e:  # pragma: no cover
-        print(f"  [跳过] PyQt6 不可用: {e}")
+        print(f"  [skip] PyQt6 unavailable: {e}")
         return
     shown = []
     QMessageBox.information = lambda *a, **k: shown.append("info") or QMessageBox.StandardButton.Ok
@@ -260,58 +281,62 @@ def test_ui_rune_convert():
     tab = win.items
     try:
         combo = tab.rune_combo
-        ok(combo.count() == 34, f"符文下拉框 34 项 (33 符文 + 占位, 实际 {combo.count()})")
-        ok(combo.itemText(0) == "选择目标符文…" and combo.itemData(0) is None,
-           f"占位项显示 {combo.itemText(0)!r} 且 itemData=None")
+        ok(combo.count() == 34, f"rune combo has 34 entries (33 runes + placeholder, got {combo.count()})")
+        placeholder = "选择目标符文…" if HAVE_I18N else "Select target rune…"
+        ok(combo.itemText(0) == placeholder and combo.itemData(0) is None,
+           f"placeholder shows {combo.itemText(0)!r} with itemData=None")
         i_r33 = next(i for i in range(combo.count()) if combo.itemData(i) == "r33")
         i_r07 = next(i for i in range(combo.count()) if combo.itemData(i) == "r07")
-        ok("萨德符文 (Zod)" == combo.itemText(i_r33), f"r33 项显示 {combo.itemText(i_r33)!r}")
-        ok("塔尔符文 (Tal)" == combo.itemText(i_r07), f"r07 项显示 {combo.itemText(i_r07)!r}")
+        ok(rune_label("r33") == combo.itemText(i_r33), f"r33 entry shows {combo.itemText(i_r33)!r}")
+        ok(rune_label("r07") == combo.itemText(i_r07), f"r07 entry shows {combo.itemText(i_r07)!r}")
         ok(not tab.rune_convert_btn.isEnabled() and not combo.isEnabled(),
-           "初始 (非符文物品) 控件组禁用")
+           "controls disabled initially (non-rune item)")
 
         idx, _ = find_rune(tab.full_items, "r07")
-        ok(idx >= 0, f"full_items 中找到 r07 (索引 {idx})")
-        tab.item_combo.setCurrentIndex(idx)  # 触发 _show_props
+        ok(idx >= 0, f"found r07 in full_items (index {idx})")
+        tab.item_combo.setCurrentIndex(idx)  # triggers _show_props
         ok(tab.rune_convert_btn.isEnabled() and combo.isEnabled(),
-           "选中符文后控件组启用")
-        # 占位项点击转换 -> 提示且不改动
+           "controls enabled after selecting a rune")
+        # placeholder + convert click -> info dialog, nothing changed
         tab.rune_convert_btn.click()
-        ok("info" in shown, "占位项 (未选目标) 点击转换弹出提示")
-        ok(win.dirty is False, "未选目标时不标记 dirty")
-        ok(find_rune(reparse(win.save), "r07")[0] == idx, "未选目标时物品未变")
+        ok("info" in shown, "convert click with placeholder (no target) shows an info dialog")
+        ok(win.dirty is False, "not marked dirty without a target")
+        ok(find_rune(reparse(win.save), "r07")[0] == idx, "item unchanged without a target")
 
-        # 真实转换: r07 -> r33
+        # real conversion: r07 -> r33
         combo.setCurrentIndex(i_r33)
         tab.rune_convert_btn.click()
-        ok(win.dirty, "转换后标记 dirty")
+        ok(win.dirty, "marked dirty after conversion")
         items2 = reparse(win.save)
         idx2, rune2 = find_rune(items2, "r33")
-        ok(idx2 == idx and rune2 is not None, f"重新解析读回类型 'r33' (同一索引 {idx2})")
-        ok("萨德" in tab.item_combo.itemText(idx), f"物品下拉框文字已更新: {tab.item_combo.itemText(idx)!r}")
-        ok(combo.currentIndex() == 0, "转换成功后下拉框复位到占位项")
-        ok(tab.rune_convert_btn.isEnabled(), "转换后仍是符文, 控件组保持启用")
+        ok(idx2 == idx and rune2 is not None, f"re-parse reads back type 'r33' (same index {idx2})")
+        needle = "萨德" if HAVE_I18N else "Zod"
+        ok(needle in tab.item_combo.itemText(idx), f"item combo text updated: {tab.item_combo.itemText(idx)!r}")
+        ok(combo.currentIndex() == 0, "combo reset to the placeholder after a successful conversion")
+        ok(tab.rune_convert_btn.isEnabled(), "still a rune after conversion, controls stay enabled")
 
-        # 转回 r07 (往返)
+        # convert back to r07 (roundtrip)
         combo.setCurrentIndex(i_r07)
         tab.rune_convert_btn.click()
         items3 = reparse(win.save)
-        ok(find_rune(items3, "r07")[0] == idx, "转回 'r07': 重新解析读回类型")
-        ok(find_rune(items3, "r33")[0] == -1, "r33 已不存在")
-        save_and_verify(win.save, "UI往返")
+        ok(find_rune(items3, "r07")[0] == idx, "converted back to 'r07': re-parse reads back the type")
+        ok(find_rune(items3, "r33")[0] == -1, "r33 gone")
+        save_and_verify(win.save, "UI roundtrip")
 
-        # 格子刷新: 把转换后的物品临时视为背包格 (3,2), _populate_cells 应显示新符文名
+        # cell refresh: temporarily treat the converted item as an inventory
+        # cell (3,2); _populate_cells should show the new rune name
         it = tab.full_items[idx]
         it["location_id"], it["alt_position_id"] = 0, 1
         it["position_x"], it["position_y"] = 3, 2
         tab._populate_cells()
         lbl = tab.inv_cells[(3, 2)]
-        ok("符文" in lbl.text(), f"背包格 (3,2) 刷新显示: {lbl.text()!r}")
+        ok("符文" in lbl.text() if HAVE_I18N else "Rune" in lbl.text(),
+           f"inventory cell (3,2) refreshed display: {lbl.text()!r}")
 
-        # 切回非符文物品 -> 控件组禁用
+        # switch back to a non-rune item -> controls disabled
         tab.item_combo.setCurrentIndex(10)
         ok(not tab.rune_convert_btn.isEnabled() and not combo.isEnabled(),
-           "切到非符文物品后控件组禁用")
+           "controls disabled after switching to a non-rune item")
     finally:
         win.close()
         shutil.rmtree(tmp, ignore_errors=True)
@@ -324,7 +349,7 @@ def main():
     test_sweep_all_33_codes()
     test_reject_invalid()
     test_ui_rune_convert()
-    print(f"\n符文转换自检全部通过: {_PASS} 条断言, 0 失败。")
+    print(f"\nrune conversion self-check all passed: {_PASS} assertions, 0 failures.")
 
 
 if __name__ == "__main__":

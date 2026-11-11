@@ -35,9 +35,6 @@ from d2s.item_codec import (
 )
 from d2s.stats import set_stat, ATTR_NAMES, ATTR_BITS
 
-STAT_ZH = {0: '力量', 1: '能量', 2: '敏捷', 3: '体力', 4: '未用属性点', 5: '未用技能点',
-           6: '当前生命', 7: '最大生命', 8: '当前法力', 9: '最大法力', 10: '当前精力', 11: '最大精力',
-           12: '等级', 13: '经验', 14: '金币', 15: '仓库金币'}
 from d2s.skill_names import get_skill_name, skill_id_for_slot
 from d2s.item_names import get_item_name, get_item_location, EQUIPPED_NAMES
 from d2s.diagnostics import find_markers, find_fourcc_tags
@@ -45,6 +42,23 @@ from d2s.diagnostics import find_markers, find_fourcc_tags
 from d2s.models import SaveFile, QuestEntry, ItemSimpleHeader
 
 APP_TITLE = "D2R Save Editor"
+
+
+def tr(key: str, fallback: str | None = None) -> str:
+    """Translate a UI label through the runtime-loaded language table.
+
+    Looks up `key` in the "ui" section of the generated table
+    (d2s/data/i18n_zh.json, built by tools/build_i18n.py from the user's own
+    game strings). Returns the localized text on a hit, otherwise the English
+    `fallback` (or the key itself when no fallback is given). Code contains
+    only English keys and English fallbacks; all zh strings live in the
+    generated table, so the codebase stays English-only.
+    """
+    ui = load_i18n().get("ui") or {}
+    value = ui.get(key)
+    if value:
+        return value
+    return fallback if fallback is not None else key
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -92,16 +106,16 @@ class OverviewTab(QWidget):
         self.lbl_flags = QLabel("-")
         self.lbl_note = QLabel("")
 
-        self.form.addRow("签名", self.lbl_sig)
-        self.form.addRow("版本", self.lbl_ver)
-        self.form.addRow("文件大小", self.lbl_size)
-        self.form.addRow("校验和(存储)", self.lbl_checksum)
-        self.form.addRow("校验和有效?", self.lbl_checksum_ok)
-        self.form.addRow("名字", self.edit_name)
-        self.form.addRow("职业", self.lbl_class)
-        self.form.addRow("等级", self.spin_level)
-        self.form.addRow("旧版标志位", self.lbl_flags)
-        self.form.addRow("备注", self.lbl_note)
+        self.form.addRow(tr("lbl_signature", "Signature"), self.lbl_sig)
+        self.form.addRow(tr("lbl_version", "Version"), self.lbl_ver)
+        self.form.addRow(tr("lbl_file_size", "File size"), self.lbl_size)
+        self.form.addRow(tr("lbl_checksum_stored", "Checksum (stored)"), self.lbl_checksum)
+        self.form.addRow(tr("lbl_checksum_valid", "Checksum valid?"), self.lbl_checksum_ok)
+        self.form.addRow(tr("lbl_name", "Name"), self.edit_name)
+        self.form.addRow(tr("lbl_class", "Class"), self.lbl_class)
+        self.form.addRow(tr("lbl_level", "Level"), self.spin_level)
+        self.form.addRow(tr("lbl_legacy_flags", "Legacy flags"), self.lbl_flags)
+        self.form.addRow(tr("lbl_note", "Note"), self.lbl_note)
 
 class SkillsTab(QWidget):
     def __init__(self, parent=None):
@@ -298,10 +312,10 @@ class StatsTab(QWidget):
         self.spins: dict[int, QSpinBox] = {}
 
         # Core attributes: Strength, Energy, Dexterity, Vitality
-        core_box = QGroupBox("基础属性")
+        core_box = QGroupBox(tr("group_core_stats", "Core attributes"))
         core_form = QFormLayout()
         for stat_id in (0, 1, 2, 3):
-            name = STAT_ZH.get(stat_id) or ATTR_NAMES.get(stat_id, f"Stat {stat_id}")
+            name = tr(f"stat_{stat_id}", ATTR_NAMES.get(stat_id, f"Stat {stat_id}"))
             bits = ATTR_BITS.get(stat_id, 10)
             spin = self._make_spin(bits)
             self.spins[stat_id] = spin
@@ -310,10 +324,10 @@ class StatsTab(QWidget):
         root.addWidget(core_box)
 
         # Life, Mana, Stamina
-        life_box = QGroupBox("生命 / 法力 / 精力")
+        life_box = QGroupBox(tr("group_life_mana", "Life / Mana / Stamina"))
         life_form = QFormLayout()
         for stat_id in (6, 7, 8, 9, 10, 11):
-            name = STAT_ZH.get(stat_id) or ATTR_NAMES.get(stat_id, f"Stat {stat_id}")
+            name = tr(f"stat_{stat_id}", ATTR_NAMES.get(stat_id, f"Stat {stat_id}"))
             bits = ATTR_BITS.get(stat_id, 21)
             spin = self._make_spin(bits)
             self.spins[stat_id] = spin
@@ -322,10 +336,10 @@ class StatsTab(QWidget):
         root.addWidget(life_box)
 
         # Level, Experience, Gold
-        misc_box = QGroupBox("等级 / 经验 / 金币")
+        misc_box = QGroupBox(tr("group_level_exp_gold", "Level / Experience / Gold"))
         misc_form = QFormLayout()
         for stat_id in (12, 13, 14, 15):
-            name = STAT_ZH.get(stat_id) or ATTR_NAMES.get(stat_id, f"Stat {stat_id}")
+            name = tr(f"stat_{stat_id}", ATTR_NAMES.get(stat_id, f"Stat {stat_id}"))
             bits = ATTR_BITS.get(stat_id, 32)
             spin = self._make_spin(bits)
             self.spins[stat_id] = spin
@@ -382,7 +396,8 @@ class StatsTab(QWidget):
         return out
 
 class ClickableLabel(QLabel):
-    """可点击的 QLabel: 左键按下发出 clicked 信号 (物品格选中交互用)。"""
+    """Clickable QLabel: emits `clicked` on left-button press (used for the
+    item cell selection interaction)."""
     clicked = pyqtSignal()
 
     def mousePressEvent(self, event):
@@ -391,19 +406,19 @@ class ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
-# 物品品质文字颜色 (对齐 D2R 经典配色: 暗金/亮金/魔法/套装...)
+# Item quality text colors (matching classic D2R palette: unique/rare/magic/set...)
 QUALITY_COLORS = {
-    1: "#9d9d9d",   # 低质量 (灰)
-    3: "#d0d0d0",   # 优质
-    4: "#6969ff",   # 魔法 (蓝)
-    5: "#00ff00",   # 套装 (绿)
-    6: "#ffff80",   # 亮金/稀有 (黄)
-    7: "#c7b377",   # 暗金/传奇 (金)
-    8: "#ffa500",   # 手工 (橙)
+    1: "#9d9d9d",   # low quality (gray)
+    3: "#d0d0d0",   # superior
+    4: "#6969ff",   # magic (blue)
+    5: "#00ff00",   # set (green)
+    6: "#ffff80",   # rare (yellow)
+    7: "#c7b377",   # unique/legendary (gold)
+    8: "#ffa500",   # crafted (orange)
 }
 
-# 格子边框样式: objectName 选择器只作用于 frame 自身,
-# 不影响内部 QLabel (QLabel 也是 QFrame 子类, 避免边框/背景被继承)。
+# Cell frame styles: the objectName selector only matches the frame itself so
+# the inner QLabel (also a QFrame subclass) does not inherit border/background.
 _SLOT_FRAME_STYLE = "#slotFrame { background-color: #2d2d2d; }"
 _SLOT_FRAME_SELECTED_STYLE = "#slotFrame { background-color: #45402a; border: 3px solid #c7b377; }"
 
@@ -428,17 +443,22 @@ def _make_slot_frame(slot_name: str) -> tuple[QFrame, ClickableLabel]:
     return frame, lbl_item
 
 
-# 职业译名对齐 D2R 官方简中字符串表 (item-modifiers.json): Sorceress=巫师,
-# Assassin=猎法者; 职业 id 仅 0-6, 7 不是有效职业 (避免写入无效参数)。
-CLASS_ZH = {0: "亚马逊", 1: "巫师", 2: "死灵法师", 3: "圣骑士",
-            4: "野蛮人", 5: "德鲁伊", 6: "猎法者"}
-PARAM_KIND_ZH = {
-    "skill": "选择技能", "class": "选择职业", "tab_skill": "技能页+技能",
-    "cast": "概率+等级+技能", "charges": "等级+技能+次数",
+def class_label(class_id: int) -> str:
+    """Class display name: zh-CN from the language table when present, else
+    the English class name. Valid ids are 0-6 only (7 is not a real class)."""
+    return tr(f"class_{class_id}", CLASS_NAMES.get(class_id, f"Class {class_id}"))
+
+
+# Parametric prop kinds -> dropdown hint labels (English fallbacks)
+PARAM_KIND_LABELS = {
+    "skill": "Select skill", "class": "Select class", "tab_skill": "Skill tab + skill",
+    "cast": "Chance + level + skill", "charges": "Level + skill + charges",
 }
 
-# 符文 r01-r33: 类型代码 -> 英文原名 (1-33号, El..Zod)。中文名经 i18n items 表
-# (build_i18n.py RUNE_NAMES_ZH) 显示; 单向映射, 写回存档的只有类型代码。
+
+# Runes r01-r33: type code -> original English name (#1-33, El..Zod). zh-CN
+# names come from the i18n items table (build_i18n.py RUNE_NAMES_ZH) at
+# runtime; one-way mapping, saves are written with the type code only.
 RUNE_EN_NAMES = {
     "r01": "El", "r02": "Eld", "r03": "Tir", "r04": "Nef", "r05": "Eth",
     "r06": "Ith", "r07": "Tal", "r08": "Ral", "r09": "Ort", "r10": "Thul",
@@ -452,8 +472,9 @@ RUNE_CODE_RE = re.compile(r"^r\d{2}$")
 
 
 def make_skill_combo(parent=None) -> QComboBox:
-    """技能下拉框: skills_by_id 全部 429 项 (含 mod 技能), 显示中文技能名,
-    可输入关键字搜索 (QCompleter 包含匹配)。itemData = 技能 id。"""
+    """Skill dropdown: all 429 entries from skills_by_id (mod skills included),
+    zh names via the language table when present (English otherwise), searchable
+    by typed keyword (QCompleter contains-match). itemData = skill id."""
     constants = load_constants()
     i18n = load_i18n()
     by_id = i18n.get("skills_by_id", {})
@@ -466,7 +487,7 @@ def make_skill_combo(parent=None) -> QComboBox:
         en = ""
         if sid < len(skills) and skills[sid]:
             en = skills[sid].get("s") or skills[sid].get("n") or ""
-        label = f"{sid}: {zh or en or f'技能{sid}'}"
+        label = f"{sid}: {zh or en or f'Skill {sid}'}"
         if en and zh and en.lower() != zh.lower():
             label += f" ({en})"
         combo.addItem(label, sid)
@@ -482,15 +503,16 @@ def make_skill_combo(parent=None) -> QComboBox:
 def affix_fields_spec(prop: dict, *, value: int = 0, skill_id: int | None = None,
                       tab: int = 0, class_id: int = 0, level: int = 0,
                       cur: int = 0, mx: int = 0) -> list:
-    """UI 输入 -> add_magic_prop_ex 的 fields_spec, 按 param_kind 分发:
-      skill: [(技能id, 数值)]            class: [(职业id, 数值)]
-      tab_skill: [((技能页, 技能id), 数值)]
-      cast: [((等级, 技能id), 概率%)]    charges: [((等级, 技能id), (当前, 最大)次数)]"""
+    """UI inputs -> fields_spec for add_magic_prop_ex, dispatched by param_kind:
+      skill: [(skill id, value)]         class: [(class id, value)]
+      tab_skill: [((skill tab, skill id), value)]
+      cast: [((level, skill id), chance %)]
+      charges: [((level, skill id), (current, max) charges)]"""
     kind = prop.get("param_kind")
     if kind is None:
         return [(None, int(value))]
     if skill_id is None and kind != "class":
-        raise ValueError("请选择一个技能")
+        raise ValueError("Please select a skill")
     if kind == "skill":
         return [(int(skill_id), int(value))]
     if kind == "class":
@@ -501,7 +523,7 @@ def affix_fields_spec(prop: dict, *, value: int = 0, skill_id: int | None = None
         return [((int(level), int(skill_id)), int(value))]
     if kind == "charges":
         return [((int(level), int(skill_id)), (int(cur), int(mx)))]
-    raise ValueError(f"未支持的参数词缀类型: {kind}")
+    raise ValueError(f"Unsupported parametric prop kind: {kind}")
 
 
 class ItemsTab(QWidget):
@@ -515,7 +537,7 @@ class ItemsTab(QWidget):
 
         content = QHBoxLayout()
         # Left: Equipped (paperdoll)
-        equipped_group = QGroupBox("身上装备")
+        equipped_group = QGroupBox(tr("group_equipped", "Equipped"))
         equipped_layout = QGridLayout()
         self.equipped_slots: dict[int, ClickableLabel] = {}
         self._equipped_frames: dict[int, QFrame] = {}
@@ -531,7 +553,7 @@ class ItemsTab(QWidget):
         content.addWidget(equipped_group)
 
         # Right: Inventory (10x4 grid)
-        inv_group = QGroupBox("背包")
+        inv_group = QGroupBox(tr("group_inventory", "Inventory"))
         inv_layout = QGridLayout()
         self.inv_cells: dict[tuple[int, int], ClickableLabel] = {}
         self._inv_frames: dict[tuple[int, int], QFrame] = {}
@@ -548,7 +570,7 @@ class ItemsTab(QWidget):
         root.addLayout(content)
 
         # Raw list (collapsible)
-        self.raw_group = QGroupBox("物品列表 (原始解析)")
+        self.raw_group = QGroupBox(tr("group_raw_list", "Item list (raw parse)"))
         self.raw_table = QTableWidget(0, 5)
         self.raw_table.setHorizontalHeaderLabels(["#", "Type", "Location", "Flags", "Note"])
         self.raw_table.verticalHeader().setVisible(False)
@@ -557,45 +579,48 @@ class ItemsTab(QWidget):
         root.addWidget(self.raw_group)
 
         # Full-parse list + magic property editor
-        self.detail_group = QGroupBox("物品列表 / 词缀数值修改 (Full item parse + magic property editing)")
+        self.detail_group = QGroupBox(tr("group_item_edit", "Item list / affix value editing"))
         detail_layout = QVBoxLayout()
         combo_row = QHBoxLayout()
-        combo_row.addWidget(QLabel("选择物品:"))
+        combo_row.addWidget(QLabel(tr("lbl_select_item", "Select item:")))
         self.item_combo = QComboBox()
         self.item_combo.currentIndexChanged.connect(self._show_props)
         combo_row.addWidget(self.item_combo, 1)
         detail_layout.addLayout(combo_row)
-        tip = QLabel("提示: 点击上方「身上装备 / 背包」格子可直接选中该物品并编辑词缀。")
+        tip = QLabel(tr("tip_click_cells", "Tip: click a cell above (Equipped / Inventory) to select that item and edit its affixes."))
         tip.setStyleSheet("color: #999; font-size: 11px;")
         detail_layout.addWidget(tip)
 
         self.props_table = QTableWidget(0, 5)
-        self.props_table.setHorizontalHeaderLabels(["词缀属性", "当前值", "修改为", "状态", "操作"])
+        self.props_table.setHorizontalHeaderLabels([
+            tr("col_affix", "Affix"), tr("col_current", "Current"),
+            tr("col_new", "New value"), tr("col_status", "Status"), tr("col_action", "Action"),
+        ])
         self.props_table.horizontalHeader().setStretchLastSection(False)
         self.props_table.verticalHeader().setVisible(False)
         detail_layout.addWidget(self.props_table, 1)
 
         apply_row = QHBoxLayout()
-        self.apply_btn = QPushButton("应用词缀数值修改 (patch bits + mark dirty)")
+        self.apply_btn = QPushButton(tr("btn_apply_affixes", "Apply affix value edits"))
         self.apply_btn.clicked.connect(self._apply_prop_edits)
-        self.add_affix_btn = QPushButton("➕ 添加词缀 (Add affix)")
+        self.add_affix_btn = QPushButton(tr("btn_add_affix", "➕ Add affix"))
         self.add_affix_btn.clicked.connect(self._add_affix)
-        self.gem_up_btn = QPushButton("⬆ 宝石升一阶")
+        self.gem_up_btn = QPushButton(tr("btn_gem_upgrade", "⬆ Upgrade gem tier"))
         self.gem_up_btn.clicked.connect(lambda: self._gem_step(False))
-        self.gem_max_btn = QPushButton("⬆⬆ 宝石升到完美")
+        self.gem_max_btn = QPushButton(tr("btn_gem_max", "⬆⬆ Upgrade gem to perfect"))
         self.gem_max_btn.clicked.connect(lambda: self._gem_step(True))
         self.gem_up_btn.setEnabled(False)
         self.gem_max_btn.setEnabled(False)
-        # 符文转换控件组: 选中物品是符文 (r01-r33) 时启用
-        self.rune_label = QLabel("符文:")
+        # rune conversion controls: enabled when the selected item is a rune (r01-r33)
+        self.rune_label = QLabel(tr("lbl_rune", "Rune:"))
         self.rune_combo = QComboBox()
-        self.rune_combo.addItem("选择目标符文…", None)  # 占位项, 避免误触
+        self.rune_combo.addItem(tr("rune_placeholder", "Select target rune…"), None)  # placeholder, avoids accidental triggers
         _rune_items = load_i18n().get("items", {})
         for _rc in sorted(RUNE_EN_NAMES):
             _zh = _rune_items.get(_rc)
             _label = f"{_zh} ({RUNE_EN_NAMES[_rc]})" if _zh else f"{RUNE_EN_NAMES[_rc]} ({_rc})"
-            self.rune_combo.addItem(_label, _rc)  # itemData = 类型代码 (写回用)
-        self.rune_convert_btn = QPushButton("转换为此符文")
+            self.rune_combo.addItem(_label, _rc)  # itemData = type code (used for write-back)
+        self.rune_convert_btn = QPushButton(tr("btn_rune_convert", "Convert to this rune"))
         self.rune_convert_btn.clicked.connect(self._rune_convert)
         for _w in (self.rune_label, self.rune_combo, self.rune_convert_btn):
             _w.setEnabled(False)
@@ -611,7 +636,7 @@ class ItemsTab(QWidget):
 
         self.full_items = []      # parsed item dicts (item_codec)
         self._prop_spins = []     # (field_dict, QSpinBox)
-        self._shown_index = -1    # 上次 _show_props 的物品索引 (符文占位复位用)
+        self._shown_index = -1    # item index of the last _show_props (for rune placeholder reset)
         self._save_ref: SaveFile | None = None
 
     def bind(self, save: SaveFile | None):
@@ -625,23 +650,25 @@ class ItemsTab(QWidget):
             except Exception as e:
                 self.full_items = []
                 QMessageBox.warning(
-                    self, "物品解析", f"完整物品解析失败（不影响其他功能）:\n{e}"
+                    self, tr("dlg_title_parse_warning", "Item parsing"),
+                    tr("msg_parse_failed", "Full item parse failed (other features unaffected):\n{error}").format(error=e)
                 )
         self._populate()
 
     def _flatten_item(self, it: dict, prefix: str = "") -> list[tuple[str, dict]]:
-        """(显示标题, 物品dict) 列表, 含镶嵌物"""
+        """List of (display title, item dict), socketed items included."""
         out = [(prefix + describe_item(it)["title"], it)]
         for sub in it.get("socketed_items", []) or []:
             out.extend(self._flatten_item(sub, prefix + "  └ "))
         return out
 
-    # ---- 格子显示与点击选择 ----
+    # ---- cell display and click selection ----
 
     def _find_index_for_slot(self, kind: str, key) -> int:
-        """在 full_items 中定位格子对应的物品索引; 找不到返回 -1。
-        身上: location_id==1 且 equipped_id 匹配;
-        背包: location_id==0 且 alt_position_id==1 且 position_x/y (列/行) 匹配。"""
+        """Locate the item index for a cell in full_items; -1 when not found.
+        Equipped: location_id==1 and equipped_id matches;
+        Inventory: location_id==0, alt_position_id==1 and position_x/y
+        (column/row) match."""
         for i, it in enumerate(self.full_items):
             if kind == "equipped":
                 if it.get("location_id") == 1 and it.get("equipped_id") == key:
@@ -654,14 +681,14 @@ class ItemsTab(QWidget):
         return -1
 
     def _clear_cell_highlight(self) -> None:
-        """所有格子恢复默认边框样式。"""
+        """Restore the default border style on all cells."""
         for frame in self._equipped_frames.values():
             frame.setStyleSheet(_SLOT_FRAME_STYLE)
         for frame in self._inv_frames.values():
             frame.setStyleSheet(_SLOT_FRAME_STYLE)
 
     def _set_cell_highlight(self, kind: str, key) -> None:
-        """高亮选中格子的边框 (先清除其他格子的高亮)。"""
+        """Highlight the selected cell's border (clears other cells first)."""
         self._clear_cell_highlight()
         frames = self._equipped_frames if kind == "equipped" else self._inv_frames
         frame = frames.get(key)
@@ -669,8 +696,8 @@ class ItemsTab(QWidget):
             frame.setStyleSheet(_SLOT_FRAME_SELECTED_STYLE)
 
     def _select_by_slot(self, kind: str, key) -> None:
-        """点击格子 → "选择物品"下拉框切到该物品并显示其词缀表。
-        空格子或无完整解析 (full_items) 时无反应。"""
+        """Cell click -> move the "select item" combo to that item and show its
+        affix table. No-op for empty cells or when full_items is empty."""
         if not self.full_items:
             return
         idx = self._find_index_for_slot(kind, key)
@@ -689,12 +716,12 @@ class ItemsTab(QWidget):
         if not (0 <= index < len(self.full_items)):
             return
         flat = self._flatten_item(self.full_items[index])
-        rows = []  # (显示文本, field, prop 或 None, 所属物品)
+        rows = []  # (display text, field, prop or None, owner item)
         HEADER_FIELDS = (
-            ("_defense_field", "防御 (Defense)"),
-            ("_durmax_field", "耐久上限 (Max Durability)"),
-            ("_durcur_field", "当前耐久 (Durability)"),
-            ("_qty_field", "数量 (Quantity)"),
+            ("_defense_field", tr("hdr_defense", "Defense")),
+            ("_durmax_field", tr("hdr_max_durability", "Max Durability")),
+            ("_durcur_field", tr("hdr_durability", "Durability")),
+            ("_qty_field", tr("hdr_quantity", "Quantity")),
         )
         for title, it in flat:
             for key, label in HEADER_FIELDS:
@@ -722,20 +749,20 @@ class ItemsTab(QWidget):
                 spin.setValue(field.get("value", 0))
                 self.props_table.setCellWidget(r, 2, spin)
                 self._prop_spins.append((field, spin))
-                status = "可修改"
+                status = tr("status_editable", "editable")
             else:
-                status_item = QTableWidgetItem("(特殊编码, 只读)")
+                status_item = QTableWidgetItem(tr("status_special_readonly", "(special encoding, read-only)"))
                 status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.props_table.setItem(r, 2, status_item)
-                status = "只读"
+                status = tr("status_readonly", "read-only")
             st = QTableWidgetItem(status)
             st.setFlags(st.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.props_table.setItem(r, 3, st)
 
-            # 操作列: 每条词缀 (首行) 提供"删除"按钮
+            # action column: each affix (first row) gets a "delete" button
             if prop is not None and field is prop["fields"][0]:
-                btn = QPushButton("删除")
-                btn.setToolTip("从词缀表删除该词缀 (np 分组整组删除)")
+                btn = QPushButton(tr("btn_delete", "Delete"))
+                btn.setToolTip(tr("tooltip_delete_affix", "Delete this affix from the prop list (whole np group)"))
                 btn.clicked.connect(lambda _=False, it=owner, p=prop: self._delete_affix(it, p))
                 self.props_table.setCellWidget(r, 4, btn)
             else:
@@ -744,7 +771,7 @@ class ItemsTab(QWidget):
                 self.props_table.setItem(r, 4, dash)
         self.props_table.resizeColumnToContents(0)
         self.props_table.resizeColumnToContents(4)
-        # 宝石升阶按钮状态: 选中物品是宝石且有下一阶时可用
+        # gem upgrade buttons: enabled when the selected item is a gem with a next tier
         try:
             if 0 <= index < len(self.full_items):
                 t = (self.full_items[index].get("type") or "").strip()
@@ -756,8 +783,9 @@ class ItemsTab(QWidget):
         except Exception:
             self.gem_up_btn.setEnabled(False)
             self.gem_max_btn.setEnabled(False)
-        # 符文转换控件状态: 选中物品是符文 (类型代码 r01-r33) 时启用;
-        # 切换到另一件物品时占位项复位 (避免带上一个物品选过的目标误触转换)
+        # rune conversion controls: enabled when the selected item is a rune
+        # (type code r01-r33); the placeholder is reset when switching to
+        # another item (avoids accidental conversion with the previous item's target)
         is_rune = False
         if 0 <= index < len(self.full_items):
             is_rune = bool(RUNE_CODE_RE.match((self.full_items[index].get("type") or "").strip()))
@@ -776,7 +804,8 @@ class ItemsTab(QWidget):
         t = (item.get("type") or "").strip()
         chains = gem_tiers()
         if t not in chains:
-            QMessageBox.information(self, "提示", "选中的物品不是可升级的宝石。")
+            QMessageBox.information(self, tr("dlg_title_info", "Info"),
+                                    tr("msg_not_gem", "The selected item is not an upgradeable gem."))
             return
         new_type = chains[t]
         if to_max:
@@ -784,7 +813,7 @@ class ItemsTab(QWidget):
             while new_type in chains and guard < 10:
                 new_type = chains[new_type]
                 guard += 1
-        # 变长升阶需要物品尾部填充字节抵扣: span_end = 下一物品起始位
+        # growing tier upgrades need the item's trailing padding bytes: span_end = next item's start bit
         span_end = None
         if idx + 1 < len(self.full_items):
             nxt = self.full_items[idx + 1]
@@ -793,10 +822,10 @@ class ItemsTab(QWidget):
         try:
             change_item_type(save.raw, item, new_type, span_end=span_end)
         except ValueError as e:
-            QMessageBox.critical(self, "升阶失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_upgrade_failed", "Upgrade failed"), str(e))
             return
         self.window()._mark_dirty()
-        # 位偏移已变化, 重新解析并保持选中
+        # bit offsets changed: re-parse and keep the selection
         self.full_items = parse_item_list(bytes(save.raw), save.items.offset, version=save.header.version)
         self.item_combo.blockSignals(True)
         self.item_combo.clear()
@@ -807,15 +836,16 @@ class ItemsTab(QWidget):
         self.item_combo.blockSignals(False)
         self._show_props(idx)
         QMessageBox.information(
-            self, "升阶成功",
-            f"宝石已升为「{describe_item(self.full_items[idx])['title']}」\n"
-            "Ctrl+S 保存到文件 (自动备份 .bak)。"
+            self, tr("dlg_title_upgrade_ok", "Upgrade successful"),
+            tr("msg_upgrade_ok", "Gem upgraded to \"{title}\".\nPress Ctrl+S to save to file (automatic .bak backup).")
+            .format(title=describe_item(self.full_items[idx])["title"])
         )
 
     def _rune_convert(self):
-        """把选中的符文物品转换为下拉框选定的目标符文 (r01-r33, 任意互转,
-        不做阶梯限制)。与 _gem_step 同模式: change_item_type 位流手术 -> 标记
-        dirty -> 重新解析保持选中 -> 刷新格子文字 -> 提示成功。"""
+        """Convert the selected rune item to the target rune picked in the
+        combo (r01-r33, any conversion, no tier restrictions). Same pattern as
+        _gem_step: change_item_type bit surgery -> mark dirty -> re-parse
+        keeping the selection -> refresh cell text -> success dialog."""
         save = self._save_ref
         idx = self.item_combo.currentIndex()
         if not save or not (0 <= idx < len(self.full_items)):
@@ -823,24 +853,28 @@ class ItemsTab(QWidget):
         item = self.full_items[idx]
         t = (item.get("type") or "").strip()
         if not RUNE_CODE_RE.match(t):
-            QMessageBox.information(self, "提示", "选中的物品不是符文。")
+            QMessageBox.information(self, tr("dlg_title_info", "Info"),
+                                    tr("msg_not_rune", "The selected item is not a rune."))
             return
         new_type = self.rune_combo.currentData()
         if not new_type:
-            QMessageBox.information(self, "提示", "请先在下拉框选择目标符文。")
+            QMessageBox.information(self, tr("dlg_title_info", "Info"),
+                                    tr("msg_no_rune_target", "Pick a target rune in the combo first."))
             return
-        # 物品实际占用跨度 (含尾部全零对齐/堆叠字节) = 下一顶层物品的起始位。
-        # 传入 span_end 让类型码位长变化在跨度内消化: 其余物品字节完全不动,
-        # 变长转换对游戏内安全 (见 change_item_type 文档)。
+        # the span the item actually occupies (incl. trailing zero alignment /
+        # stack bytes) = the next top-level item's start bit. Passing span_end
+        # lets the type-code length change be absorbed inside the span: other
+        # items' bytes stay untouched and growing conversions are in-game safe
+        # (see the change_item_type docs).
         nxt = self.full_items[idx + 1] if idx + 1 < len(self.full_items) else None
         span_end = nxt.get("_start_bit") if nxt is not None else None
         try:
             change_item_type(save.raw, item, new_type, span_end=span_end)
         except ValueError as e:
-            QMessageBox.critical(self, "转换失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_convert_failed", "Conversion failed"), str(e))
             return
         self.window()._mark_dirty()
-        # 位偏移已变化, 重新解析并保持选中; 格子文字同步刷新
+        # bit offsets changed: re-parse and keep the selection; refresh cell text too
         self.full_items = parse_item_list(bytes(save.raw), save.items.offset, version=save.header.version)
         self.item_combo.blockSignals(True)
         self.item_combo.clear()
@@ -850,64 +884,66 @@ class ItemsTab(QWidget):
         self.item_combo.setCurrentIndex(idx)
         self.item_combo.blockSignals(False)
         self._show_props(idx)
-        self.rune_combo.setCurrentIndex(0)  # 占位复位, 防连续误触
+        self.rune_combo.setCurrentIndex(0)  # placeholder reset, avoids accidental repeat clicks
         self._populate_cells()
-        # 物品在身上/背包格子里时, 转换后格子仍保持选中高亮
+        # when the item sits in an equipped/inventory cell, keep the cell highlighted
         it = self.full_items[idx]
         if it.get("location_id") == 1:
             self._set_cell_highlight("equipped", it.get("equipped_id"))
         elif it.get("location_id") == 0 and it.get("alt_position_id") == 1:
             self._set_cell_highlight("inv", (it.get("position_x"), it.get("position_y")))
         QMessageBox.information(
-            self, "转换成功",
-            f"物品已转换为「{describe_item(self.full_items[idx])['title']}」\n"
-            "Ctrl+S 保存到文件 (自动备份 .bak)。"
+            self, tr("dlg_title_convert_ok", "Conversion successful"),
+            tr("msg_convert_ok", "Item converted to \"{title}\".\nPress Ctrl+S to save to file (automatic .bak backup).")
+            .format(title=describe_item(self.full_items[idx])["title"])
         )
 
     def _build_affix_dialog(self, title: str, props: list):
-        """构建"添加词缀"对话框, 返回 (dlg, 词缀下拉框, 数值spin, 参数控件dict)。
-        参数控件按词缀的 param_kind 动态显隐。"""
+        """Build the "add affix" dialog. Returns (dlg, affix combo, value spin,
+        param widget dict). Param widgets show/hide dynamically per the
+        affix's param_kind."""
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"添加词缀 → {title}")
+        dlg.setWindowTitle(tr("dlg_title_add_affix", "Add affix → {title}").format(title=title))
         dlg.resize(600, 340)
         v = QVBoxLayout(dlg)
-        v.addWidget(QLabel(f"目标物品: {title}"))
+        v.addWidget(QLabel(tr("lbl_target_item", "Target item: {title}").format(title=title)))
         row = QHBoxLayout()
-        row.addWidget(QLabel("词缀:"))
+        row.addWidget(QLabel(tr("lbl_affix", "Affix:")))
         combo = QComboBox()
         for p in props:
             label = p["desc"]
             if p.get("param_kind"):
-                label += f"   [需要参数: {PARAM_KIND_ZH.get(p['param_kind'], p['param_kind'])}]"
+                kind_lbl = PARAM_KIND_LABELS.get(p["param_kind"], p["param_kind"])
+                label += f"   [{tr('param_hint', 'requires parameter')} {kind_lbl}]"
             combo.addItem(label, p)
         row.addWidget(combo, 1)
         v.addLayout(row)
 
-        # 参数区 (技能/等级/技能页/职业/次数)
+        # parameter area (skill / level / skill tab / class / charges)
         grid = QGridLayout()
         w: dict = {}
-        lbl_skill = QLabel("技能:")
+        lbl_skill = QLabel(tr("lbl_skill", "Skill:"))
         w["skill_combo"] = make_skill_combo(dlg)
-        lbl_level = QLabel("技能等级:")
+        lbl_level = QLabel(tr("lbl_skill_level", "Skill level:"))
         level_spin = QSpinBox()
         level_spin.setRange(0, 63)
         level_spin.setValue(1)
         w["level_spin"] = level_spin
-        lbl_tab = QLabel("技能页 (0-7):")
+        lbl_tab = QLabel(tr("lbl_skill_tab", "Skill tab (0-7):"))
         tab_spin = QSpinBox()
         tab_spin.setRange(0, 7)
         w["tab_spin"] = tab_spin
-        lbl_class = QLabel("职业:")
+        lbl_class = QLabel(tr("lbl_class", "Class:"))
         class_combo = QComboBox()
-        for cid in sorted(CLASS_ZH):
-            class_combo.addItem(f"{cid}: {CLASS_ZH[cid]}", cid)
+        for cid in range(7):
+            class_combo.addItem(f"{cid}: {class_label(cid)}", cid)
         w["class_combo"] = class_combo
-        lbl_cur = QLabel("当前次数:")
+        lbl_cur = QLabel(tr("lbl_cur_charges", "Current charges:"))
         cur_spin = QSpinBox()
         cur_spin.setRange(1, 255)
         cur_spin.setValue(1)
         w["cur_spin"] = cur_spin
-        lbl_max = QLabel("最大次数:")
+        lbl_max = QLabel(tr("lbl_max_charges", "Max charges:"))
         max_spin = QSpinBox()
         max_spin.setRange(1, 255)
         max_spin.setValue(1)
@@ -933,9 +969,9 @@ class ItemsTab(QWidget):
         grid.addLayout(cur_max_row, 4, 0, 1, 2)
         v.addLayout(grid)
 
-        # 数值区 (概率/数值)
+        # value area (chance / value)
         row2 = QHBoxLayout()
-        lbl_value = QLabel("数值:")
+        lbl_value = QLabel(tr("lbl_value", "Value:"))
         w["lbl_value"] = lbl_value
         value_spin = QSpinBox()
         w["value_spin"] = value_spin
@@ -943,7 +979,9 @@ class ItemsTab(QWidget):
         row2.addWidget(value_spin)
         row2.addStretch(1)
         v.addLayout(row2)
-        note = QLabel("提示: 带技能词缀支持输入关键字搜索; 词缀将插入到该物品的词缀表末尾。\n保存时原文件自动备份为 .bak。")
+        note = QLabel(tr("note_add_affix",
+                         "Tip: skill-based affixes support keyword search; the affix is inserted "
+                         "at the end of the item's prop list.\nThe original file is backed up as .bak on save."))
         v.addWidget(note)
 
         def on_prop_changed(i):
@@ -968,9 +1006,9 @@ class ItemsTab(QWidget):
             for key, vis in show.items():
                 w[key].setVisible(vis)
             if kind == "cast":
-                lbl_value.setText("概率 (%):")
+                lbl_value.setText(tr("lbl_chance", "Chance (%):"))
             else:
-                lbl_value.setText("数值:")
+                lbl_value.setText(tr("lbl_value", "Value:"))
             lo, hi = (1, 255) if kind == "charges" else (p["min"], p["max"])
             value_spin.setRange(lo, hi)
             value_spin.setValue(min(max(1, lo), hi))
@@ -987,7 +1025,8 @@ class ItemsTab(QWidget):
         save = self._save_ref
         idx = self.item_combo.currentIndex()
         if not save or not (0 <= idx < len(self.full_items)):
-            QMessageBox.information(self, "提示", "请先在上方选择一件物品。")
+            QMessageBox.information(self, tr("dlg_title_info", "Info"),
+                                    tr("msg_select_item_first", "Select an item above first."))
             return
         item = self.full_items[idx]
         title = describe_item(item)["title"]
@@ -1008,38 +1047,41 @@ class ItemsTab(QWidget):
                 mx=w["max_spin"].value(),
             )
         except ValueError as e:
-            QMessageBox.critical(self, "添加失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_add_failed", "Add failed"), str(e))
             return
         self._do_add_affix(save, idx, prop, spec)
 
     def _do_add_affix(self, save, idx: int, prop: dict, spec: list):
-        """执行词缀插入并刷新界面 (供对话框与测试共用)。"""
+        """Perform the affix insertion and refresh the UI (shared by the
+        dialog and the tests)."""
         item = self.full_items[idx]
         title = describe_item(item)["title"]
         try:
             add_magic_prop_ex(save.raw, item, prop["id"], spec)
         except ValueError as e:
-            QMessageBox.critical(self, "添加失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_add_failed", "Add failed"), str(e))
             return
         self.window()._mark_dirty()
         self._reparse_refresh(idx)
-        # 重新解析后词缀表末尾即为新词缀, 用解析结果生成中文描述
+        # after re-parsing the new prop sits at the end of the list; build the
+        # display text from the parse result
         new_prop = self.full_items[idx]["magic_attributes"][-1]
         desc = describe_magic_prop(new_prop) if new_prop["id"] == prop["id"] else prop["desc"]
         QMessageBox.information(
-            self, "添加成功",
-            f"已为「{title}」添加: {desc}\nCtrl+S 保存到文件 (自动备份 .bak)。"
+            self, tr("dlg_title_add_ok", "Add successful"),
+            tr("msg_add_ok", "Added to \"{title}\": {desc}\nPress Ctrl+S to save to file (automatic .bak backup).")
+            .format(title=title, desc=desc)
         )
 
     def _delete_affix(self, owner_item: dict, prop: dict):
-        """删除一条词缀 (np 分组整组删除), 删除后重新解析刷新。"""
+        """Delete one affix (whole np group), re-parse and refresh afterwards."""
         save = self._save_ref
         if not save:
             return
         desc = describe_magic_prop(prop)
         resp = QMessageBox.question(
-            self, "删除词缀",
-            f"确定从该物品删除这条词缀?\n\n{desc}",
+            self, tr("dlg_title_delete_affix", "Delete affix"),
+            tr("msg_delete_confirm", "Delete this affix from the item?\n\n{desc}").format(desc=desc),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1049,17 +1091,19 @@ class ItemsTab(QWidget):
         try:
             delete_magic_prop(save.raw, owner_item, prop)
         except ValueError as e:
-            QMessageBox.critical(self, "删除失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_delete_failed", "Delete failed"), str(e))
             return
         self.window()._mark_dirty()
         self._reparse_refresh(idx)
         QMessageBox.information(
-            self, "删除成功",
-            f"已删除词缀: {desc}\nCtrl+S 保存到文件 (自动备份 .bak)。"
+            self, tr("dlg_title_delete_ok", "Delete successful"),
+            tr("msg_delete_ok", "Deleted affix: {desc}\nPress Ctrl+S to save to file (automatic .bak backup).")
+            .format(desc=desc)
         )
 
     def _reparse_refresh(self, idx: int):
-        """位流拼接 (插入/删除) 后位偏移全部变化, 重新解析并保持选中。"""
+        """After a bit-stream splice (insert/delete) all bit offsets change:
+        re-parse and keep the selection."""
         save = self._save_ref
         self.full_items = parse_item_list(bytes(save.raw), save.items.offset, version=save.header.version)
         self.item_combo.blockSignals(True)
@@ -1087,21 +1131,25 @@ class ItemsTab(QWidget):
                 field["value"] = new_val
                 changed += 1
         except ValueError as e:
-            QMessageBox.critical(self, "修改失败", str(e))
+            QMessageBox.critical(self, tr("dlg_title_edit_failed", "Edit failed"), str(e))
             return
         if changed:
             self.window()._mark_dirty()
             QMessageBox.information(
-                self, "已应用",
-                f"已修改 {changed} 处词缀数值（写入内存，Ctrl+S 保存到文件）。\n"
-                "保存时原文件会自动备份为 .bak。"
+                self, tr("dlg_title_applied", "Applied"),
+                tr("msg_apply_ok", "Modified {count} affix value(s) (in memory; press Ctrl+S to save to file).\n"
+                   "The original file is backed up as .bak on save.")
+                .format(count=changed)
             )
         else:
-            QMessageBox.information(self, "无改动", "没有需要应用的修改。")
+            QMessageBox.information(self, tr("dlg_title_no_changes", "No changes"),
+                                    tr("msg_no_changes", "Nothing to apply."))
 
     def _populate_cells(self):
-        """清空并按 full_items 重填「身上装备 / 背包」格子 (中文名/品质配色/数量)。
-        _populate 与符文转换后的格子刷新共用 (_populate 额外处理兜底与原始表)。"""
+        """Clear and refill the Equipped / Inventory cells from full_items
+        (item names / quality colors / stack counts). Shared by _populate and
+        the post-conversion cell refresh (_populate additionally handles the
+        fallback and the raw table)."""
         self._clear_slots()
         if not self.full_items:
             return
@@ -1117,7 +1165,7 @@ class ItemsTab(QWidget):
                 continue
             lbl = cells.get(key)
             if lbl is None or lbl.text() != "—":
-                continue  # 同格多件 (堆叠) 只显示第一件
+                continue  # several items in one cell (stack): show the first only
             d = describe_item(it)
             title = d["title"]
             qty = it.get("quantity")
@@ -1143,11 +1191,12 @@ class ItemsTab(QWidget):
             msg += " (Stopped on advanced item.)"
         self.info.setText(msg)
 
-        # Clear slots + 按完整解析结果填格 (中文物品名 + 品质配色 + 数量)
+        # Clear slots + fill cells from the full parse (item names + quality colors + counts)
         self._populate_cells()
 
         if not self.full_items:
-            # 兜底: 完整解析不可用时, 用旧的简单解析显示大致位置
+            # fallback: when the full parse is unavailable, show approximate
+            # locations using the old simple parse
             for it in items.parsed:
                 name = get_item_name(it.type_code)
                 if it.identified:
@@ -1180,7 +1229,7 @@ class ItemsTab(QWidget):
             self.raw_table.setItem(r, 4, QTableWidgetItem("advanced" if it.advanced else "simple"))
         self.raw_table.resizeColumnsToContents()
 
-        # Full-parse combo (物品下拉框)
+        # Full-parse combo (item dropdown)
         self.item_combo.blockSignals(True)
         self.item_combo.clear()
         for it in self.full_items:
@@ -1308,33 +1357,33 @@ class MainWindow(QMainWindow):
         self.items = ItemsTab()
         self.diag = DiagnosticsTab()
 
-        self.tabs.addTab(self.overview, "概览")
-        self.tabs.addTab(self.stats_tab, "属性")
-        self.tabs.addTab(self.skills, "技能")
-        self.tabs.addTab(self.quests, "任务")
-        self.tabs.addTab(self.waypoints, "传送点")
-        self.tabs.addTab(self.items, "物品 (编辑)")
-        self.tabs.addTab(self.diag, "诊断")
+        self.tabs.addTab(self.overview, tr("tab_overview", "Overview"))
+        self.tabs.addTab(self.stats_tab, tr("tab_stats", "Stats"))
+        self.tabs.addTab(self.skills, tr("tab_skills", "Skills"))
+        self.tabs.addTab(self.quests, tr("tab_quests", "Quests"))
+        self.tabs.addTab(self.waypoints, tr("tab_waypoints", "Waypoints"))
+        self.tabs.addTab(self.items, tr("tab_items", "Items (edit)"))
+        self.tabs.addTab(self.diag, tr("tab_diagnostics", "Diagnostics"))
         self.tabs.setTabEnabled(self.tabs.indexOf(self.items), False)
         self.setCentralWidget(self.tabs)
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        act_open = QAction("打开存档…", self)
+        act_open = QAction(tr("act_open_save", "Open save…"), self)
         act_open.triggered.connect(self.open_file)
-        act_generate = QAction("生成新角色…", self)
+        act_generate = QAction(tr("act_generate_character", "Generate new character…"), self)
         act_generate.triggered.connect(self.generate_new_savefile)
-        act_save = QAction("保存", self)
+        act_save = QAction(tr("act_save", "Save"), self)
         act_save.setShortcut(QKeySequence(QKeySequence.StandardKey.Save))
         act_save.triggered.connect(self.save_file)
-        act_saveas = QAction("另存为…", self)
+        act_saveas = QAction(tr("act_save_as", "Save As…"), self)
         act_saveas.setShortcut(QKeySequence(QKeySequence.StandardKey.SaveAs))
         act_saveas.triggered.connect(self.save_as)
-        act_exit = QAction("退出", self)
+        act_exit = QAction(tr("act_exit", "Exit"), self)
         act_exit.triggered.connect(self.close)
 
-        m = self.menuBar().addMenu("文件")
+        m = self.menuBar().addMenu(tr("menu_file", "File"))
         m.addAction(act_open)
         m.addAction(act_generate)
         m.addSeparator()
@@ -1345,14 +1394,14 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(act_exit)
 
-        act_settings = QAction("设置…", self)
+        act_settings = QAction(tr("act_settings", "Settings…"), self)
         act_settings.triggered.connect(self._show_settings)
-        m_settings = self.menuBar().addMenu("设置")
+        m_settings = self.menuBar().addMenu(tr("menu_settings", "Settings"))
         m_settings.addAction(act_settings)
 
-        act_about = QAction("关于…", self)
+        act_about = QAction(tr("act_about", "About…"), self)
         act_about.triggered.connect(self._show_about)
-        m_help = self.menuBar().addMenu("帮助")
+        m_help = self.menuBar().addMenu(tr("menu_help", "Help"))
         m_help.addAction(act_about)
 
         self.overview.edit_name.textEdited.connect(self._mark_dirty)
@@ -1418,7 +1467,7 @@ class MainWindow(QMainWindow):
                 self.overview.spin_level.setEnabled(False)
                 self.overview.lbl_class.setText("-")
                 self.overview.lbl_flags.setText("-")
-                self.overview.lbl_note.setText("请打开一个 .d2s 存档文件开始使用。")
+                self.overview.lbl_note.setText(tr("overview_note_empty", "Open a .d2s save file to begin."))
                 self.skills.set_enabled(False, "Open a file to load skills.")
                 self.stats_tab.bind(None)
                 self.quests.bind(None)
@@ -1431,7 +1480,7 @@ class MainWindow(QMainWindow):
             hdr = self.save.header
             self.overview.lbl_sig.setText(hex(hdr.signature))
             self.overview.lbl_ver.setText(str(hdr.version))
-            # 存档加载成功后启用 Items 标签 (v105 完整解析已可用)
+            # enable the Items tab once a save has loaded (full parse works on v105)
             self.tabs.setTabEnabled(self.tabs.indexOf(self.items), True)
             self.overview.lbl_size.setText(str(hdr.file_size))
             self.overview.lbl_checksum.setText(hex(hdr.checksum))
@@ -1669,7 +1718,7 @@ def main():
     app = QApplication(sys.argv)
     w = MainWindow()
     w.showMaximized()
-    # 命令行可直接带存档路径: python launcher.py <存档.d2s>
+    # a save path can be passed directly on the command line: python launcher.py <save.d2s>
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     if args and os.path.isfile(args[0]):
         try:
